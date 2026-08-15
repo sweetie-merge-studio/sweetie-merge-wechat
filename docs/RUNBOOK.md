@@ -101,7 +101,7 @@ npm run type-check
 
 1. ⬜ 用 Cocos Creator 3.8.4 打开工程，确认资源导入无报错、`npm run type-check` 全绿。
 2. ⬜ 构建 `wechatgame` 产物，微信开发者工具导入，模拟器按「四」的标准验证主流程。
-3. ⬜ 服务端补 `/auth/wechat` 登录接口（`platform/wechat.ts` 的 `login()` 依赖它换 openid/JWT；接口缺失时降级用 code 作临时标识）。
+3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
 4. ⬜ 申请真实 AppID 后替换 `wechat/project.config.json` 占位值（**不要 commit 真实 AppID**）。
 5. ⬜ `wechat/game.json` 声明的 bakery / blindbox / collection 三个分包，Cocos 侧场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。
 6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。
