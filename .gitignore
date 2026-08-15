@@ -24,3 +24,6 @@ yarn-error.log
 log.txt
 *.log
 settings/v2/packages/*.json.bak
+
+# 微信开发者工具本地状态（含真实 AppID 时不提交）
+wechat/project.private.config.json

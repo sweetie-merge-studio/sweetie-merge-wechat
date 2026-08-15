@@ -8,11 +8,11 @@ import { createSpriteNode, UI_COLORS } from './ui-factory';
 const { ccclass, property } = _decorator;
 
 /** 竖版木牌卡片（对齐 Web 版 OrderPanel.vue .card：order-card 背景图、约 3:4 比例） */
-const CARD_WIDTH = 150;
-const CARD_HEIGHT = 190;
-const CARD_GAP = 16;
-const REQ_LABEL_Y = 26;
-const REWARD_LABEL_Y = -56;
+const CARD_WIDTH = 110;
+const CARD_HEIGHT = 150;
+const CARD_GAP = 12;
+const REQ_LABEL_Y = 20;
+const REWARD_LABEL_Y = -42;
 
 /**
  * 订单面板：渲染当前 activeOrders 列表。
@@ -64,8 +64,8 @@ export class OrderPanelComponent extends Component {
       if (reqLabel) {
         reqLabel.node.setPosition(new Vec3(0, REQ_LABEL_Y, 0));
         reqLabel.color = UI_COLORS.textBrown;
-        reqLabel.fontSize = 22;
-        reqLabel.lineHeight = 28;
+        reqLabel.fontSize = 18;
+        reqLabel.lineHeight = 23;
         reqLabel.string = order.requirements
           .map(r => `${getOrderItemName(r.itemId)}${r.fulfilled ? '（已交）' : ''}`)
           .join('\n');
@@ -74,8 +74,8 @@ export class OrderPanelComponent extends Component {
       if (rewardLabel) {
         rewardLabel.node.setPosition(new Vec3(0, REWARD_LABEL_Y, 0));
         rewardLabel.color = UI_COLORS.textBrown;
-        rewardLabel.fontSize = 20;
-        rewardLabel.lineHeight = 26;
+        rewardLabel.fontSize = 16;
+        rewardLabel.lineHeight = 20;
         const energy = order.reward.energy ? `\n精力+${order.reward.energy}` : '';
         rewardLabel.string = `金币+${order.reward.coins}${energy}`;
       }

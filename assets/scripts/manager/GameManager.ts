@@ -1,4 +1,4 @@
-import { _decorator, Component, director } from 'cc';
+import { _decorator, Component, Node, Vec3, director } from 'cc';
 
 import type { Cell, EconomyState, EnergyState, Platform } from '../core/types';
 import {
@@ -18,6 +18,8 @@ import { wechatPlatform, wechatInit } from '../platform/wechat';
 import { initOfflineQueue } from '../platform/offline-queue';
 import { EventBus } from '../core/EventBus';
 import { createSpriteNode } from '../components/ui-factory';
+import { CashierCounterComponent } from '../components/CashierCounterComponent';
+import { BottomNavComponent } from '../components/BottomNavComponent';
 
 const { ccclass } = _decorator;
 
@@ -70,6 +72,7 @@ export class GameManager extends Component {
     initOfflineQueue();
     // 全屏烘焙背景（对齐 Web 版 body background: #F2E9CA + main_bg）
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
+    this._mountUiSections();
     this.loadFromPlatform();
   }
 
@@ -94,6 +97,21 @@ export class GameManager extends Component {
     if (this.energy.current !== before) {
       this.events.emit('energy:changed', this.energy);
     }
+  }
+
+  /** 营业厅木牌与底部导航（对齐 Web 版页面结构，纯代码构建） */
+  private _mountUiSections(): void {
+    const cashier = new Node('CashierCounter');
+    cashier.layer = this.node.layer;
+    cashier.setPosition(new Vec3(0, 330, 0));
+    this.node.addChild(cashier);
+    cashier.addComponent(CashierCounterComponent);
+
+    const nav = new Node('BottomNav');
+    nav.layer = this.node.layer;
+    nav.setPosition(new Vec3(0, -575, 0));
+    this.node.addChild(nav);
+    nav.addComponent(BottomNavComponent);
   }
 
   // --- 持久化 ---
