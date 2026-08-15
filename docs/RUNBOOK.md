@@ -10,12 +10,12 @@
 |------|------|
 | 代码移植（`tt.*` → `wx.*`、平台层 / API 层 / 接线） | ✅ 完成 |
 | TypeScript 类型检查 | ✅ 通过（需先用 Cocos 打开工程生成 `temp/`） |
-| 用 Cocos Creator 打开工程（生成 library/temp/meta） | ⬜ 未做 |
-| Cocos 构建微信小游戏包 | ⬜ 未做 |
-| 微信开发者工具安装 + 导入验证 | ⬜ 未做 |
-| 真实 AppID 申请 | ⬜ 未做（占位值 `wx0000000000000000`） |
+| 用 Cocos Creator 打开工程（生成 library/temp/meta） | ✅ 完成（CLI 构建时自动导入，2026-08-15） |
+| Cocos 构建微信小游戏包 | ✅ 通过（CLI，debug 包 19MB，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
+| 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
+| 真实 AppID 申请 | ⬜ 未做（Cocos 构建产物暂用其默认测试 appid `wx6ac3f5090a6b99c5`） |
 
-**下一步**：用 Cocos Creator 3.8.4 打开工程 → 构建（平台选微信小游戏）→ 微信开发者工具导入 `build/wechatgame/`。
+**下一步只有一件事**：安装微信开发者工具 → 导入 `build/wechatgame/`（选「小游戏」，可用测试号）→ 模拟器按「四」的标准验证。
 
 ## 二、核心心智模型
 
@@ -99,8 +99,8 @@ npm run type-check
 
 ## 五、后续 TODO（按优先级）
 
-1. ⬜ 用 Cocos Creator 3.8.4 打开工程，确认资源导入无报错、`npm run type-check` 全绿。
-2. ⬜ 构建 `wechatgame` 产物，微信开发者工具导入，模拟器按「四」的标准验证主流程。
+1. ✅ CLI 构建已通过（资源导入无报错、type-check 全绿、`build/wechatgame/` 产物完整，Main.scene 在主包）。
+2. ⬜ 安装微信开发者工具 → 导入 `build/wechatgame/` → 模拟器按「四」的标准验证主流程。
 3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
 4. ⬜ 申请真实 AppID 后替换 `wechat/project.config.json` 占位值（**不要 commit 真实 AppID**）。
 5. ⬜ `wechat/game.json` 声明的 bakery / blindbox / collection 三个分包，Cocos 侧场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。
