@@ -58,6 +58,7 @@ build/wechatgame/            ← game.json + game.js + 打包后的 JS/资源
 
 - **新建**：往目录里生成模板代码，选了仓库根 = 污染源码。
 - **导入/打开**：加载已含 `game.json` + `project.config.json` 的现成项目。**永远走这条。**
+- 导入的目录**只能是 `build/wechatgame/`**（构建产物）。仓库里的 `wechat/` 只是开发期配置参考，不是可运行的小游戏工程——导进去会拿占位 `game.json` 编译，报「subpackages root 不存在」这类错（已实测踩过）。
 
 ### 4. 日志来源判别
 
@@ -103,6 +104,6 @@ npm run type-check
 2. ⬜ 安装微信开发者工具 → 导入 `build/wechatgame/` → 模拟器按「四」的标准验证主流程。
 3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
 4. ⬜ 申请真实 AppID 后替换 `wechat/project.config.json` 占位值（**不要 commit 真实 AppID**）。
-5. ⬜ `wechat/game.json` 声明的 bakery / blindbox / collection 三个分包，Cocos 侧场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。
+5. ⬜ bakery / blindbox / collection 三个分包的 Cocos 场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。分包创建后再把 `subpackages` 声明加回 `wechat/game.json`——占位声明曾导致开发者工具报 `["subpackages"][N]["root"] 不存在`（2026-08-15 实测，触发条件是误把 `wechat/` 当项目目录导入；正确目录永远是 `build/wechatgame/`）。
 6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。
 7. ⬜ 上线前改 release 构建（勾 MD5 + 压缩引擎）；主包 ≤ 4MB、总包 ≤ 30MB，超限先查 `assets/sprites/` 与分包配置。

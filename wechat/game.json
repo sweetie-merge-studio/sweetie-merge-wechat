@@ -6,19 +6,5 @@
     "uploadFile": 60000,
     "downloadFile": 60000
   },
-  "subpackages": [
-    {
-      "name": "bakery",
-      "root": "subpackages/bakery/"
-    },
-    {
-      "name": "blindbox",
-      "root": "subpackages/blindbox/"
-    },
-    {
-      "name": "collection",
-      "root": "subpackages/collection/"
-    }
-  ],
   "plugins": {}
 }

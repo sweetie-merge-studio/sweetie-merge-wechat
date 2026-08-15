@@ -147,7 +147,7 @@ npm run type-check
 
 这个工程仍在建设中，几处已知的「设计已定、代码未落地」：
 
-- **资源分包**：`wechat/game.json` 里已声明 bakery / blindbox / collection 三个分包，但 Cocos 侧对应的场景和目录尚未创建，`project.json` 目前只声明了 `main` 一个 Bundle。烘焙坊 / 盲盒 / 图鉴的**逻辑**已经写在 `assets/scripts/core/` 里，缺的是场景与资源。
+- **资源分包**：bakery / blindbox / collection 三个分包的 Cocos 场景和目录尚未创建，`project.json` 目前只声明了 `main` 一个 Bundle。烘焙坊 / 盲盒 / 图鉴的**逻辑**已经写在 `assets/scripts/core/` 里，缺的是场景与资源。分包建好后再把 `subpackages` 声明加进 `wechat/game.json`（提前声明会让微信开发者工具报 root 不存在）。
 - **场景**：目前只有 `Main.scene`。
 - **美术资源**：部分品类的道具图还没补齐。
 - **未在微信开发者工具中验证**：本仓库由抖音端（`sweetie-merge-douyin`）移植而来，代码层面已完成 `tt.*` → `wx.*` 适配，但尚未走完「构建 → 微信开发者工具导入 → 模拟器验证」全流程。
