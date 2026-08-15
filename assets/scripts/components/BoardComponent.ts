@@ -1,4 +1,4 @@
-import { _decorator, Component, EventTouch, Graphics, Node, Prefab, instantiate, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, EventTouch, Graphics, Input, Node, Prefab, input, instantiate, UITransform, Vec3 } from 'cc';
 
 import type { Cell } from '../core/types';
 import { BOARD_COLS, BOARD_ROWS, BOARD_LENGTH } from '../core/board';
@@ -9,15 +9,18 @@ import { createSpriteNode, UI_COLORS } from './ui-factory';
 
 const { ccclass, property } = _decorator;
 
-/** 矩形格子（对齐 Web 版：棋盘占满宽度、格子宽大于高） */
+/** 矩形格子（对齐 Web 版：棋盘占满宽度，高度随屏幕自适应） */
 const CELL_W = 106;
-const CELL_H = 68;
 const CELL_GAP = 4;
 const CELL_RADIUS = 10;
 /** 木托盘图比棋盘四周各多出的边距 */
 const TRAY_PADDING = 30;
-/** 物品节点相对 prefab 原始尺寸（88）的缩放 */
-const ITEM_SCALE = (CELL_H - 8) / 88;
+/** 与 GameManager._anchorSections 的棋盘 top 锚定值保持一致 */
+const BOARD_TOP_OFFSET = 630;
+/** 底部导航 + 间距的预留高度 */
+const NAV_RESERVE = 170;
+/** Item.prefab 原始尺寸 */
+const ITEM_BASE_SIZE = 88;
 
 /**
  * 棋盘渲染组件。
@@ -37,7 +40,16 @@ export class BoardComponent extends Component {
   private _dragFromIdx = -1;
   private _dragItemNode: Node | null = null;
 
+  /** 格子高度随可视高度自适应（onLoad 时计算） */
+  private _cellH = 68;
+  private _itemScale = (68 - 8) / ITEM_BASE_SIZE;
+
   protected onLoad(): void {
+    const canvasH = this.node.parent?.getComponent(UITransform)?.height ?? 1280;
+    const available = canvasH - BOARD_TOP_OFFSET - NAV_RESERVE;
+    const raw = (available - TRAY_PADDING * 2 - (BOARD_ROWS - 1) * CELL_GAP) / BOARD_ROWS;
+    this._cellH = Math.max(56, Math.min(96, Math.floor(raw)));
+    this._itemScale = (this._cellH - 8) / ITEM_BASE_SIZE;
     this._buildGrid();
   }
 
@@ -46,10 +58,12 @@ export class BoardComponent extends Component {
     gm.events.on('board:changed', this._onBoardChanged);
     gm.events.on('board:reset', this._onBoardChanged);
     gm.events.on('save:loaded', this._onBoardChanged);
-    this.node.on(Node.EventType.TOUCH_START, this._onTouchStart, this);
-    this.node.on(Node.EventType.TOUCH_MOVE, this._onTouchMove, this);
-    this.node.on(Node.EventType.TOUCH_END, this._onTouchEnd, this);
-    this.node.on(Node.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
+    // 全局输入监听：绕开节点命中检测（相机/适配变动后命中链路易失效），
+    // 由 _cellIndexAt 自行判断触点是否落在棋盘内
+    input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.on(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
+    input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
+    input.on(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
     this._render(gm.board);
   }
 
@@ -58,10 +72,10 @@ export class BoardComponent extends Component {
     gm.events.off('board:changed', this._onBoardChanged);
     gm.events.off('board:reset', this._onBoardChanged);
     gm.events.off('save:loaded', this._onBoardChanged);
-    this.node.off(Node.EventType.TOUCH_START, this._onTouchStart, this);
-    this.node.off(Node.EventType.TOUCH_MOVE, this._onTouchMove, this);
-    this.node.off(Node.EventType.TOUCH_END, this._onTouchEnd, this);
-    this.node.off(Node.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
+    input.off(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.off(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
+    input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
+    input.off(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
   }
 
   // --- 触摸输入：点击母体产出物品 / 拖拽物品合成 ---
@@ -76,23 +90,29 @@ export class BoardComponent extends Component {
   /** 棋盘本地坐标 → 格子下标（不在棋盘内返回 -1） */
   private _cellIndexAt(local: Vec3): number {
     const totalW = BOARD_COLS * CELL_W + (BOARD_COLS - 1) * CELL_GAP;
-    const totalH = BOARD_ROWS * CELL_H + (BOARD_ROWS - 1) * CELL_GAP;
-    const gx = local.x + totalW / 2;
-    const gy = totalH / 2 - local.y;
-    if (gx < 0 || gy < 0 || gx >= totalW + CELL_GAP || gy >= totalH + CELL_GAP) return -1;
+    const totalH = BOARD_ROWS * this._cellH + (BOARD_ROWS - 1) * CELL_GAP;
+    let gx = local.x + totalW / 2;
+    let gy = totalH / 2 - local.y;
+    // 贴边容差：点在托盘边缘附近时吸附到最近的格子（手指不会精确落在格子内）
+    const tol = TRAY_PADDING + CELL_GAP;
+    if (gx < -tol || gy < -tol || gx >= totalW + tol || gy >= totalH + tol) return -1;
+    gx = Math.min(Math.max(gx, 0), totalW - 1);
+    gy = Math.min(Math.max(gy, 0), totalH - 1);
     const col = Math.min(BOARD_COLS - 1, Math.floor(gx / (CELL_W + CELL_GAP)));
-    const row = Math.min(BOARD_ROWS - 1, Math.floor(gy / (CELL_H + CELL_GAP)));
+    const row = Math.min(BOARD_ROWS - 1, Math.floor(gy / (this._cellH + CELL_GAP)));
     return row * BOARD_COLS + col;
   }
 
   private _onTouchStart(event: EventTouch): void {
-    const idx = this._cellIndexAt(this._touchToLocal(event));
+    const local = this._touchToLocal(event);
+    const idx = this._cellIndexAt(local);
+    console.info(`[board] touch (${local.x.toFixed(0)}, ${local.y.toFixed(0)}) -> cell ${idx}`);
     if (idx < 0) return;
     const gm = GameManager.instance;
     if (!gm.board[idx]?.itemId) return;
     this._dragFromIdx = idx;
     this._dragItemNode = this._cellNodes[idx]?.children[0] ?? null;
-    this._dragItemNode?.setScale(ITEM_SCALE * 1.15, ITEM_SCALE * 1.15, 1);
+    this._dragItemNode?.setScale(this._itemScale * 1.15, this._itemScale * 1.15, 1);
   }
 
   private _onTouchMove(event: EventTouch): void {
@@ -125,7 +145,7 @@ export class BoardComponent extends Component {
   private _buildGrid(): void {
     const ui = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
     const totalW = BOARD_COLS * CELL_W + (BOARD_COLS - 1) * CELL_GAP;
-    const totalH = BOARD_ROWS * CELL_H + (BOARD_ROWS - 1) * CELL_GAP;
+    const totalH = BOARD_ROWS * this._cellH + (BOARD_ROWS - 1) * CELL_GAP;
     ui.setContentSize(totalW, totalH);
 
     // 木托盘背景图（对齐 Web 版 .board-wrap .tray-bg）
@@ -140,9 +160,9 @@ export class BoardComponent extends Component {
       const col = i % BOARD_COLS;
       const cell = new Node(`cell_${i}`);
       cell.layer = this.node.layer;
-      cell.addComponent(UITransform).setContentSize(CELL_W, CELL_H);
+      cell.addComponent(UITransform).setContentSize(CELL_W, this._cellH);
       const x = col * (CELL_W + CELL_GAP) - totalW / 2 + CELL_W / 2;
-      const y = totalH / 2 - row * (CELL_H + CELL_GAP) - CELL_H / 2;
+      const y = totalH / 2 - row * (this._cellH + CELL_GAP) - this._cellH / 2;
       cell.setPosition(new Vec3(x, y, 0));
       this._drawCellBackground(cell, (row + col) % 2 === 1);
       this.node.addChild(cell);
@@ -154,7 +174,7 @@ export class BoardComponent extends Component {
   private _drawCellBackground(cell: Node, alt: boolean): void {
     const g = cell.addComponent(Graphics);
     g.fillColor = alt ? UI_COLORS.cellAlt : UI_COLORS.cellLight;
-    g.roundRect(-CELL_W / 2, -CELL_H / 2, CELL_W, CELL_H, CELL_RADIUS);
+    g.roundRect(-CELL_W / 2, -this._cellH / 2, CELL_W, this._cellH, CELL_RADIUS);
     g.fill();
   }
 
@@ -172,7 +192,7 @@ export class BoardComponent extends Component {
       if (!this.itemPrefab) { console.warn('[BoardComponent] _render: itemPrefab is null at i=', i); continue; }
 
       const itemNode = instantiate(this.itemPrefab);
-      itemNode.setScale(ITEM_SCALE, ITEM_SCALE, 1);
+      itemNode.setScale(this._itemScale, this._itemScale, 1);
       cellNode.addChild(itemNode);
       const itemComp = itemNode.getComponent(ItemComponent);
       itemComp?.bind(i, cell.itemId);
