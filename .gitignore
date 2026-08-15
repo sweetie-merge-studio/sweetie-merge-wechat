@@ -27,3 +27,6 @@ settings/v2/packages/*.json.bak
 
 # 微信开发者工具本地状态（含真实 AppID 时不提交）
 wechat/project.private.config.json
+
+# Claude Code 个人本地配置
+.claude/settings.local.json
