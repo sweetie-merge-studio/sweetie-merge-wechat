@@ -132,7 +132,7 @@ export class BoardComponent extends Component {
     createSpriteNode(
       'trayBg', this.node, 0,
       totalW + TRAY_PADDING * 2, totalH + TRAY_PADDING * 2,
-      'sprites/ui/board-tray',
+      'sprites/bg/board-tray',
     );
 
     for (let i = 0; i < BOARD_LENGTH; i++) {

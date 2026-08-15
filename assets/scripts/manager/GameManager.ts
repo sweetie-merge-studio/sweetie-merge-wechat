@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, director } from 'cc';
+import { _decorator, Component, Node, UITransform, Vec3, Widget, director } from 'cc';
 
 import type { Cell, EconomyState, EnergyState, Platform } from '../core/types';
 import {
@@ -103,15 +103,53 @@ export class GameManager extends Component {
   private _mountUiSections(): void {
     const cashier = new Node('CashierCounter');
     cashier.layer = this.node.layer;
+    cashier.addComponent(UITransform).setContentSize(660, 120);
     cashier.setPosition(new Vec3(0, 330, 0));
     this.node.addChild(cashier);
     cashier.addComponent(CashierCounterComponent);
 
     const nav = new Node('BottomNav');
     nav.layer = this.node.layer;
+    nav.addComponent(UITransform).setContentSize(720, 130);
     nav.setPosition(new Vec3(0, -575, 0));
     this.node.addChild(nav);
     nav.addComponent(BottomNavComponent);
+
+    this._anchorSections(cashier, nav);
+  }
+
+  /**
+   * 用 Widget 把各区块锚定到屏幕边缘——设计分辨率 720×1280 按宽度适配，
+   * 高于 16:9 的机型（如 19.5:9）可视高度会超过 1280，锚定保证不裁边、不悬空。
+   * top/bottom 均为区块外边缘到屏幕边缘的距离（已避开刘海与微信胶囊按钮）。
+   */
+  private _anchorSections(cashier: Node, nav: Node): void {
+    const anchorTop = (node: Node | null, top: number): void => {
+      if (!node) return;
+      const w = node.getComponent(Widget) ?? node.addComponent(Widget);
+      w.isAlignTop = true;
+      w.top = top;
+      w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    };
+
+    // 背景铺满整个可视区域
+    const bg = this.node.getChildByName('mainBg');
+    if (bg) {
+      const w = bg.getComponent(Widget) ?? bg.addComponent(Widget);
+      w.isAlignTop = w.isAlignBottom = w.isAlignLeft = w.isAlignRight = true;
+      w.top = w.bottom = w.left = w.right = 0;
+      w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    }
+
+    anchorTop(this.node.getChildByName('StatusBar'), 173);
+    anchorTop(cashier, 266);
+    anchorTop(this.node.getChildByName('OrderPanel'), 396);
+    anchorTop(this.node.getChildByName('Board'), 630);
+
+    const navWidget = nav.getComponent(Widget) ?? nav.addComponent(Widget);
+    navWidget.isAlignBottom = true;
+    navWidget.bottom = 16;
+    navWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
   }
 
   // --- 持久化 ---

@@ -57,7 +57,7 @@ export class OrderPanelComponent extends Component {
       this.node.addChild(card);
 
       // 木牌背景图垫底
-      createSpriteNode('cardBg', card, 0, CARD_WIDTH, CARD_HEIGHT, 'sprites/ui/order-card');
+      createSpriteNode('cardBg', card, 0, CARD_WIDTH, CARD_HEIGHT, 'sprites/bg/order-card');
 
       // 文案用中文文本：小游戏运行时不渲染彩色 emoji
       const reqLabel = card.getChildByName('reqLabel')?.getComponent(Label);
