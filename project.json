@@ -1,0 +1,22 @@
+{
+  "engine": "cocos-creator-3d",
+  "name": "sweetie-merge-wechat",
+  "id": "sweetie-merge-wechat",
+  "version": "3.8.4",
+  "type": "2d",
+  "creator": {
+    "version": "3.8.4"
+  },
+  "packages": {
+    "engine": "3.8.4",
+    "asset-db": "2.1.0"
+  },
+  "bundles": {
+    "main": {
+      "path": "assets",
+      "isBundle": true,
+      "priority": 1,
+      "compressionType": "none"
+    }
+  }
+}

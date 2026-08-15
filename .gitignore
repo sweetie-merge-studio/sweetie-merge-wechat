@@ -1,0 +1,26 @@
+# Cocos Creator
+library/
+local/
+temp/
+build/
+profiles/
+native/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+.DS_Store
+
+# Cocos Creator 自动生成
+*.meta.bak
+log.txt
+*.log
+settings/v2/packages/*.json.bak

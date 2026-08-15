@@ -1,0 +1,15 @@
+{
+  "appid": "wx0000000000000000",
+  "projectname": "sweetie-merge",
+  "description": "甜心合成小游戏",
+  "miniprogramRoot": "./",
+  "compileType": "game",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "minified": true,
+    "postcss": true,
+    "minifyWXSS": true
+  },
+  "condition": {}
+}
