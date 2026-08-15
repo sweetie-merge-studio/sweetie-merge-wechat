@@ -7,9 +7,11 @@
     "cocos-creator": "3.8.x"
   },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "sync-appid": "bash scripts/sync-appid.sh"
   },
   "devDependencies": {
+    "miniprogram-ci": "^2.1.31",
     "typescript": "^5.3.0"
   },
   "creator": {
