@@ -100,6 +100,8 @@ export interface SaveData {
 
 /** 平台接口 */
 export interface Platform {
+  /** 平台标识（'web' / 'wechat' / 'douyin'），登录时上报给服务端 */
+  readonly name: string;
   save(data: SaveData): void;
   load(): SaveData | null;
   showRewardedAd(): Promise<boolean>;

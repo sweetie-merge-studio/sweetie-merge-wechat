@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, UITransform, Vec3, Widget, director } from 'cc';
+import { _decorator, Component, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, profiler, view } from 'cc';
 
 import type { Cell, EconomyState, EnergyState, Platform } from '../core/types';
 import {
@@ -16,6 +16,8 @@ import { createOrderState, isValidOrderState, type OrderState } from '../core/or
 import { serialize, deserialize } from '../core/storage';
 import { wechatPlatform, wechatInit } from '../platform/wechat';
 import { initOfflineQueue } from '../platform/offline-queue';
+import { getToken } from '../api/request';
+import { login } from '../api/auth';
 import { EventBus } from '../core/EventBus';
 import { createSpriteNode } from '../components/ui-factory';
 import { CashierCounterComponent } from '../components/CashierCounterComponent';
@@ -68,12 +70,29 @@ export class GameManager extends Component {
     GameManager._instance = this;
     director.addPersistRootNode(this.node);
 
+    // 强制按宽度适配：720 铺满屏宽，高度随机型延伸（构建配置的 policy 在运行时未生效，这里兜底）
+    view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH);
+    // 关闭 debug 构建自带的 FPS/DrawCall 浮层，避免遮挡 UI
+    profiler.hideStats();
     wechatInit();
     initOfflineQueue();
     // 全屏烘焙背景（对齐 Web 版 body background: #F2E9CA + main_bg）
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
     this._mountUiSections();
     this.loadFromPlatform();
+    void this._loginToServer();
+  }
+
+  /** 服务端登录（异步、失败降级为离线模式，不阻塞启动） */
+  private async _loginToServer(): Promise<void> {
+    try {
+      if (getToken()) return;
+      const { openid } = await this.platform.login();
+      await login({ deviceId: openid, platform: this.platform.name });
+      console.info('[game] 服务端登录成功');
+    } catch (err) {
+      console.warn('[game] 服务端登录失败，继续离线模式', err);
+    }
   }
 
   protected onDestroy(): void {

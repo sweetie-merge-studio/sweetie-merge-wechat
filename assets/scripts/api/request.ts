@@ -133,14 +133,15 @@ export function request<T>(
         }
 
         if (res.statusCode < 200 || res.statusCode >= 300) {
+          // 服务端错误 envelope：{ success: false, error: 消息, errorCode: 错误码 }
           const data = res.data as Record<string, unknown> | undefined;
-          const msg = data?.message ?? `HTTP ${res.statusCode}`;
-          const code = data?.error ?? 'SERVER_ERROR';
+          const msg = data?.error ?? data?.message ?? `HTTP ${res.statusCode}`;
+          const code = data?.errorCode ?? 'SERVER_ERROR';
           reject(new ApiError(res.statusCode, String(code), String(msg)));
           return;
         }
 
-        resolve(res.data as T);
+        resolve(unwrapEnvelope<T>(res.data));
       },
       fail(err) {
         if (opts.offlineSilent) {
@@ -151,6 +152,20 @@ export function request<T>(
       },
     });
   });
+}
+
+/** 服务端成功 envelope：{ success: true, data }；历史裸响应原样返回 */
+function unwrapEnvelope<T>(data: unknown): T {
+  if (
+    data !== null &&
+    typeof data === 'object' &&
+    'success' in data &&
+    (data as { success: unknown }).success === true &&
+    'data' in data
+  ) {
+    return (data as { data: T }).data;
+  }
+  return data as T;
 }
 
 // --- 快捷方法 ---

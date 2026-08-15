@@ -54,6 +54,7 @@ function getInterstitialAd(): WxInterstitialAd {
 // --- Platform 实现 ---
 
 export const wechatPlatform: Platform = {
+  name: 'wechat',
   save(data: SaveData): void {
     try {
       wx.setStorageSync(SAVE_KEY, JSON.stringify(data));
@@ -122,12 +123,18 @@ export const wechatPlatform: Platform = {
             data: JSON.stringify({ code: res.code }),
             header: { 'Content-Type': 'application/json' },
             success(resp) {
-              const result = resp.data as { token?: string; openid?: string };
-              if (result.token) {
+              // 服务端响应带 envelope：{ success: true, data: { token, openid, player } }
+              const body = resp.data as {
+                success?: boolean;
+                data?: { token?: string; openid?: string };
+              };
+              const result = body?.data ?? (resp.data as { token?: string; openid?: string });
+              if (result?.token) {
                 setToken(result.token);
               }
-              if (result.openid) {
-                resolve({ openid: result.openid });
+              if (result?.openid) {
+                // 返回 wx_ 前缀标识 — 与服务端 /auth/wechat 注册的 deviceId 一致
+                resolve({ openid: 'wx_' + result.openid });
               } else {
                 // 降级：用 code 作为临时标识
                 resolve({ openid: 'wx_' + res.code });
