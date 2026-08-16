@@ -2,15 +2,15 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "b9b41720-2c7e-427d-89f6-181c32674c27",
+  "uuid": "1b062bff-a01c-4f60-bbc5-81aaa5b5ef85",
   "files": [
     ".json",
-    ".png"
+    ".webp"
   ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "b9b41720-2c7e-427d-89f6-181c32674c27@6c48a",
+      "uuid": "1b062bff-a01c-4f60-bbc5-81aaa5b5ef85@6c48a",
       "displayName": "order-card",
       "id": "6c48a",
       "name": "texture",
@@ -22,7 +22,7 @@
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "b9b41720-2c7e-427d-89f6-181c32674c27",
+        "imageUuidOrDatabaseUri": "1b062bff-a01c-4f60-bbc5-81aaa5b5ef85",
         "visible": false
       },
       "ver": "1.0.22",
@@ -37,6 +37,6 @@
     "type": "texture",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "b9b41720-2c7e-427d-89f6-181c32674c27@6c48a"
+    "redirect": "1b062bff-a01c-4f60-bbc5-81aaa5b5ef85@6c48a"
   }
 }
