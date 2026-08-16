@@ -1,7 +1,8 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { AD_DIAMOND_REWARD, GameManager } from '../../scripts/manager/GameManager';
-import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import { addAlignedWidget, createPageChrome, mountBundleSection, showPageToast } from '../../scripts/components/bundle-pages';
+import { buildSegmentedTabs, type SegmentDef } from '../../scripts/components/segmented-tabs';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { getConfig } from '../../scripts/core/config';
@@ -40,11 +41,23 @@ type EnergyOption =
  * 因此当前实际出三档：看广告得精力、金币换精力、看广告得钻石
  * （最后一档在 Web 侧同样是免费档，不受 iap 开关限制）。
  */
+type ShopTab = 'store' | 'blindbox';
+
+const SHOP_SEGMENTS: readonly SegmentDef<ShopTab>[] = [
+  { id: 'store', label: '商店' },
+  { id: 'blindbox', label: '盲盒' },
+];
+
 @ccclass('StorePageComponent')
 export class StorePageComponent extends Component {
   private _content: Node | null = null;
+  private _tabRow: Node | null = null;
+  private _activeTab: ShopTab = 'store';
   private _busy = false;
-  private readonly _onChanged = (): void => this._render();
+  private readonly _onChanged = (): void => {
+    // 盲盒页自己监听刷新，避免把它的内容区重建掉
+    if (this._activeTab === 'store') this._render();
+  };
 
   protected onLoad(): void {
     createPageChrome(this.node, '商店');
@@ -62,7 +75,48 @@ export class StorePageComponent extends Component {
     addAlignedWidget(content, { isAlignTop: true, top: 250 });
     this._content = content;
 
+    // 盲盒未开放时不出 Tab 条，页面退化成纯商店（与开关关闭时的旧行为一致）
+    if (getConfig().features.blindbox) {
+      const tabRow = new Node('tabRow');
+      tabRow.layer = this.node.layer;
+      tabRow.addComponent(UITransform).setContentSize(CONTENT_W, 68);
+      this.node.addChild(tabRow);
+      addAlignedWidget(tabRow, { isAlignTop: true, top: 170 });
+      this._tabRow = tabRow;
+      this._renderTabs();
+    }
+
     this._render();
+  }
+
+  /** 重建 Tab 条（选中态靠重建体现，与图鉴页一致） */
+  private _renderTabs(): void {
+    const row = this._tabRow;
+    if (!row?.isValid) return;
+    row.removeAllChildren();
+    buildSegmentedTabs(row, CONTENT_W, SHOP_SEGMENTS, this._activeTab, tab => this._switchTab(tab));
+  }
+
+  private _switchTab(tab: ShopTab): void {
+    if (tab === this._activeTab) return;
+    this._activeTab = tab;
+    this._renderTabs();
+
+    const content = this._content;
+    if (!content?.isValid) return;
+    content.removeAllChildren();
+
+    if (tab === 'store') {
+      this._render();
+      return;
+    }
+    // 盲盒是独立分包，首次切换要等加载；失败则退回商店 tab
+    mountBundleSection(content, 'blindbox', 'BlindboxPageComponent', () => {
+      showPageToast(this.node, '盲盒加载失败，请稍后再试');
+      this._activeTab = 'store';
+      this._renderTabs();
+      this._render();
+    });
   }
 
   protected onDestroy(): void {

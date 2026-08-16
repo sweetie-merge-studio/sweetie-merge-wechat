@@ -72,6 +72,47 @@ export function hasOpenBundlePage(host: Node): boolean {
 }
 
 /**
+ * 把分包里的页面组件挂进指定容器（而非全屏 overlay），用于页内 Tab 切换。
+ *
+ * 与 openBundlePage 的区别：不建 overlay、不挡触摸、不加 BundlePage_ 前缀，
+ * 因此宿主页面的顶部 Tab 条仍可点击。挂载前会清空容器原有子节点。
+ *
+ * @param onFail 加载或组件查找失败时回调（宿主页面自行提示）
+ */
+export function mountBundleSection(
+  container: Node,
+  bundleName: string,
+  componentName: string,
+  onFail?: () => void,
+): void {
+  if (!container.isValid) return;
+
+  assetManager.loadBundle(bundleName, err => {
+    if (!container.isValid) return;
+    if (err) {
+      console.warn(`[bundle-pages] 加载分包 ${bundleName} 失败`, err);
+      onFail?.();
+      return;
+    }
+
+    const cls = js.getClassByName(componentName) as (new () => Component) | null;
+    if (!cls) {
+      console.warn(`[bundle-pages] 分包 ${bundleName} 中未注册组件 ${componentName}`);
+      onFail?.();
+      return;
+    }
+
+    container.removeAllChildren();
+    const section = new Node(`Section_${bundleName}`);
+    section.layer = container.layer;
+    const ui = container.getComponent(UITransform);
+    section.addComponent(UITransform).setContentSize(ui?.width ?? 720, ui?.height ?? 900);
+    container.addChild(section);
+    section.addComponent(cls);
+  });
+}
+
+/**
  * 打开分包页面：加载 bundle → 建全屏 overlay → 挂上分包里注册的页面组件。
  * 重复调用（页面已开）时直接忽略。
  */

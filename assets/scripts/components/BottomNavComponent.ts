@@ -1,6 +1,5 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UIOpacity, UITransform, Vec3 } from 'cc';
 
-import { getConfig } from '../core/config';
 import { GameManager } from '../manager/GameManager';
 import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
 import { TapZoneComponent } from './tap-zone';
@@ -49,22 +48,11 @@ const TABS: ReadonlyArray<{
   { key: 'collection', label: '图鉴', en: 'Journal', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
   { key: 'home', label: '首页', en: 'Home' },
   { key: 'backpack', label: '背包', en: 'Backpack', page: { bundle: 'backpack', component: 'BackpackPageComponent' } },
-  // 商店落地页取决于运行时 feature flag，见 resolveShopPage；这里给个占位保证不被判为「未开放」
+  // 商店 tab 固定进 StorePage；盲盒作为它的页内 Tab（受 features.blindbox 控制），
+  // 对齐 Web ShopFullView 的并列双 Tab。早先这里是「盲盒页 or 商店页」二选一，
+  // 开盲盒会把精力钻石档位与装饰物入口顶掉。
   { key: 'shop', label: '商店', en: 'Shop', page: { bundle: 'store', component: 'StorePageComponent' } },
 ];
-
-const STORE_PAGE: TabPage = { bundle: 'store', component: 'StorePageComponent' };
-const BLINDBOX_PAGE: TabPage = { bundle: 'blindbox', component: 'BlindboxPageComponent' };
-
-/**
- * 商店 tab 的落地页。
- *
- * 对齐 Web ShopFullView：盲盒受 features.blindbox 控制（V1.0 关闭），
- * 关闭时进精力商店。此前微信端无视开关直接进盲盒，与 Web 行为不一致。
- */
-function resolveShopPage(): TabPage {
-  return getConfig().features.blindbox ? BLINDBOX_PAGE : STORE_PAGE;
-}
 
 /**
  * 底部导航（对齐 Web 版 BottomNav.vue 的五格结构）。
@@ -193,9 +181,7 @@ export class BottomNavComponent extends Component {
           if (!canvas || hasOpenBundlePage(canvas)) return;
           // 引导最后一步是「点每日签到」，进页即算完成
           if (tabKey === 'daily') GameManager.instance.completeTutorialStep('dailyCheckIn');
-          // 商店落地页取决于运行时的 feature flag（服务端配置可覆盖），点击时才解析
-          const page = tabKey === 'shop' ? resolveShopPage() : staticPage;
-          if (page) openBundlePage(canvas, page.bundle, page.component);
+          if (staticPage) openBundlePage(canvas, staticPage.bundle, staticPage.component);
           else showPageToast(canvas, `「${tab.label}」玩法开发中，敬请期待`);
         };
       }
