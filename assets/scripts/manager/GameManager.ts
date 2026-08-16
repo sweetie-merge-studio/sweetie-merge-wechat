@@ -1,19 +1,39 @@
 import { _decorator, Component, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, profiler, view } from 'cc';
 
-import type { Cell, EconomyState, EnergyState, Platform } from '../core/types';
+import type {
+  BlindBoxResult,
+  BlindBoxState,
+  Cell,
+  EconomyState,
+  EnergyState,
+  Platform,
+  ShardState,
+} from '../core/types';
 import {
   BOARD_LENGTH,
   createBoard,
   dragMerge,
   activateMother,
+  findEmptyCell,
   placeNewMothers,
   seedInitialBoard,
 } from '../core/board';
-import { playSfx } from './AudioManager';
+import { initAudio, playBgm, playSfx } from './AudioManager';
 import { createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
-import { addCoins, createEconomy } from '../core/economy';
-import { createCollection } from '../core/collection';
-import { addExp, createLevelState } from '../core/level';
+import { addCoins, addDiamonds, createEconomy, spendCoins, spendDiamonds } from '../core/economy';
+import { claimCollectionReward, createCollection, unlockItem } from '../core/collection';
+import { addExp, createLevelState, getUnlockedCategoriesByLevel } from '../core/level';
+import { addIngredientShard, addShard, createShardState } from '../core/shard';
+import {
+  createBlindBoxState,
+  NORMAL_BOX_COST,
+  openNormalBox,
+  openPremiumBox,
+  PREMIUM_BOX_COST,
+} from '../core/blindbox';
+import { createBakeryState, placeDeco, removeDeco, type BakeryState } from '../core/bakery';
+import { buyDecoration, createShopState, type ShopState } from '../core/shop';
+import { RARE_ITEM_BY_CATEGORY, type Category } from '../data/items';
 import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
@@ -59,6 +79,10 @@ export class GameManager extends Component {
   collection = createCollection();
   level = createLevelState();
   order: OrderState = createOrderState(1);
+  shard: ShardState = createShardState();
+  blindBox: BlindBoxState = createBlindBoxState();
+  bakery: BakeryState = createBakeryState();
+  shop: ShopState = createShopState();
 
   platform: Platform = wechatPlatform;
 
@@ -78,6 +102,8 @@ export class GameManager extends Component {
     // 关闭 debug 构建自带的 FPS/DrawCall 浮层，避免遮挡 UI
     profiler.hideStats();
     wechatInit();
+    initAudio(this.node);
+    playBgm();
     initOfflineQueue();
     // 全屏烘焙背景（对齐 Web 版 body background: #F2E9CA + main_bg）
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
@@ -196,6 +222,17 @@ export class GameManager extends Component {
       };
     }
     if (isValidOrderState(save.orders)) this.order = save.orders;
+    if (save.shards || save.completedRareIds || save.ingredientShards) {
+      this.shard = {
+        shards: { ...(save.shards ?? {}) },
+        completedRareIds: new Set(save.completedRareIds ?? []),
+        ingredientShards: { ...(save.ingredientShards ?? {}) },
+      };
+    }
+    if (save.blindBox) this.blindBox = { ...save.blindBox };
+    // bakery / shop 结构已由 deserialize 的 safeBakery / safeShop 校验
+    if (save.bakery) this.bakery = save.bakery as BakeryState;
+    if (save.shop) this.shop = save.shop as ShopState;
     this.autoMatchOrders();
     this.events.emit('save:loaded', save);
   }
@@ -210,7 +247,12 @@ export class GameManager extends Component {
   }
 
   flushSave(): void {
-    const data = serialize(this.board, this.energy, this.economy, this.collection, this.order);
+    const data = serialize(this.board, this.energy, this.economy, this.collection, this.order, {
+      bakery: this.bakery,
+      shop: this.shop,
+      shardState: this.shard,
+      blindBox: this.blindBox,
+    });
     this.platform.save(data);
   }
 
@@ -314,6 +356,133 @@ export class GameManager extends Component {
     return true;
   }
 
+
+  // --- 图鉴 ---
+
+  /** 当前等级已解锁的品类 */
+  get unlockedCategories(): Set<Category> {
+    return getUnlockedCategoriesByLevel(this.level.level);
+  }
+
+  /** 领取图鉴钻石奖励（与 Web 版 useGame.claimCollectionDiamond 同构：每件 +1 钻石） */
+  claimCollectionDiamond(itemId: string): boolean {
+    if (!claimCollectionReward(this.collection, itemId)) return false;
+    addDiamonds(this.economy, 1);
+    this.events.emit('collection:changed', this.collection);
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    return true;
+  }
+
+  // --- 盲盒 ---
+
+  /** 开盲盒：扣费 → 抽取 → 应用结果。余额不足返回 null。 */
+  openBlindBox(tier: 'normal' | 'premium'): BlindBoxResult | null {
+    if (tier === 'normal') {
+      if (!spendCoins(this.economy, NORMAL_BOX_COST)) return null;
+    } else if (!spendDiamonds(this.economy, PREMIUM_BOX_COST)) {
+      return null;
+    }
+
+    const open = tier === 'normal' ? openNormalBox : openPremiumBox;
+    const { result, newState } = open(this.blindBox, this.shard, this.unlockedCategories);
+    this.blindBox = newState;
+    this._applyBlindBoxResult(result);
+
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('blindbox:opened', result, this.blindBox);
+    this.scheduleSave();
+    return result;
+  }
+
+  /** 确认指定碎片品类（高级盲盒 targetShard 结果，由 UI 弹品类选择后调用） */
+  confirmTargetShard(category: Category): boolean {
+    const result = addShard(this.shard, category, 1);
+    if (result.added <= 0) return false;
+    if (result.completed) {
+      const rare = RARE_ITEM_BY_CATEGORY.get(category);
+      if (rare) unlockItem(this.collection, rare.id);
+      this.events.emit('collection:changed', this.collection);
+    }
+    this.events.emit('shard:changed', this.shard);
+    this.scheduleSave();
+    return true;
+  }
+
+  /** 应用盲盒结果到游戏状态（与 Web 版 applyBlindBoxResult 同构） */
+  private _applyBlindBoxResult(result: BlindBoxResult): void {
+    switch (result.type) {
+      case 'coins':
+        addCoins(this.economy, result.amount);
+        break;
+      case 'energy':
+        rewardEnergy(this.energy, result.amount);
+        this.events.emit('energy:changed', this.energy);
+        break;
+      case 'shard':
+        if (result.category) {
+          const shardResult = addShard(this.shard, result.category, result.amount);
+          if (shardResult.completed) {
+            const rare = RARE_ITEM_BY_CATEGORY.get(result.category as Category);
+            if (rare) unlockItem(this.collection, rare.id);
+            this.events.emit('collection:changed', this.collection);
+          }
+          this.events.emit('shard:changed', this.shard);
+        }
+        break;
+      case 'targetShard':
+        // UI 层弹品类选择，选定后走 confirmTargetShard()
+        break;
+      case 'ingredientShard':
+        if (result.ingredientId) {
+          addIngredientShard(this.shard, result.ingredientId, result.amount);
+          this.events.emit('shard:changed', this.shard);
+        }
+        break;
+      case 'item':
+        if (result.itemId) {
+          const slotIdx = findEmptyCell(this.board);
+          if (slotIdx >= 0) {
+            this.board[slotIdx] = { itemId: result.itemId };
+            unlockItem(this.collection, result.itemId);
+            this.events.emit('board:changed', this.board);
+            this.events.emit('collection:changed', this.collection);
+          }
+        }
+        break;
+    }
+  }
+
+  // --- 烘焙坊 / 装饰 ---
+
+  /** 购买装饰（金币），成功返回 true */
+  buyDeco(decoId: string): boolean {
+    const r = buyDecoration(this.shop, decoId, this.economy.coins);
+    if (!r.success) return false;
+    spendCoins(this.economy, r.cost);
+    this.shop = r.newState;
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('shop:changed', this.shop);
+    this.scheduleSave();
+    return true;
+  }
+
+  /** 把已拥有的装饰摆放到槽位（重复摆放会自动从原槽位移走） */
+  placeDecoAt(decoId: string, slotId: string): void {
+    placeDeco(this.bakery, decoId, slotId);
+    this.events.emit('bakery:changed', this.bakery);
+    this.scheduleSave();
+  }
+
+  /** 从布局中收起某装饰 */
+  removeDecoFrom(decoId: string): boolean {
+    const ok = removeDeco(this.bakery, decoId);
+    if (ok) {
+      this.events.emit('bakery:changed', this.bakery);
+      this.scheduleSave();
+    }
+    return ok;
+  }
 }
 
 // `deserialize` 仅供后续 cloud-load 流程引用，主流程由 platform.load() 内部调用。

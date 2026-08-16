@@ -1,0 +1,16 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "2449ab5a-2d96-4540-8677-80854a2a0638",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "compressionType": {},
+    "isRemoteBundle": {},
+    "isBundle": true,
+    "bundleConfigID": "minigame_subpackage",
+    "bundleName": "collection",
+    "priority": 2
+  }
+}

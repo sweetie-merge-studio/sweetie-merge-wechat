@@ -17,6 +17,24 @@
       "isBundle": true,
       "priority": 1,
       "compressionType": "none"
+    },
+    "bakery": {
+      "path": "assets/bundles/bakery",
+      "isBundle": true,
+      "priority": 2,
+      "compressionType": "subpackage"
+    },
+    "blindbox": {
+      "path": "assets/bundles/blindbox",
+      "isBundle": true,
+      "priority": 2,
+      "compressionType": "subpackage"
+    },
+    "collection": {
+      "path": "assets/bundles/collection",
+      "isBundle": true,
+      "priority": 2,
+      "compressionType": "subpackage"
     }
   }
 }
