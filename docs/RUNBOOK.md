@@ -1,4 +1,4 @@
-# 运行手册（微信端，2026-08-15）
+# 运行手册（微信端，2026-08-16）
 
 > 这份文档回答：**这个游戏到底怎么跑起来**。
 > 本仓库由抖音端（`sweetie-merge-douyin`）移植而来，工具认知与流程同构，平台工具换成微信系。
@@ -11,11 +11,18 @@
 | 代码移植（`tt.*` → `wx.*`、平台层 / API 层 / 接线） | ✅ 完成 |
 | TypeScript 类型检查 | ✅ 通过（需先用 Cocos 打开工程生成 `temp/`） |
 | 用 Cocos Creator 打开工程（生成 library/temp/meta） | ✅ 完成（CLI 构建时自动导入，2026-08-15） |
-| Cocos 构建微信小游戏包 | ✅ 通过（CLI，debug 包 19MB，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
+| Cocos 构建微信小游戏包 | ✅ 通过（CLI，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
+| release 包体达标 | ✅ 整包 3.5MB / 30MB、主包 3.95MB / 4MB（2026-08-16 压图 + 裁引擎，见「三·八」） |
+| 三个玩法分包（bakery / blindbox / collection） | ✅ 已落地（代码进分包，但资源仍在主包） |
+| 浏览器实跑验证（web-mobile 包） | ✅ 画面完整、60 FPS、console 零报错（2026-08-16） |
 | 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
 | 真实 AppID 申请 | ✅ 已有（存放在 `wechat/project.private.config.json`，gitignored；构建后跑 `npm run sync-appid` 注入产物，2026-08-15） |
+| 服务端 `WECHAT_APPID` / `WECHAT_APP_SECRET` | ⬜ 未配（`.env` 里没有），`/auth/wechat` 返回 503，登录走降级 |
 
 **下一步只有一件事**：安装微信开发者工具 → 导入 `build/wechatgame/`（选「小游戏」，可用测试号）→ 模拟器按「四」的标准验证。
+
+> 这一步是当前最大的风险敞口：上表所有 ✅ **都只经过 type-check 与浏览器 web 包**，
+> 微信端至今没在真实 `wx.*` 环境里跑过一次。
 
 ## 二、核心心智模型
 
@@ -120,6 +127,10 @@ python3 scripts/dev-server.py 8931
 - **`createRoundRectNode` 已占用宿主节点的 Graphics**：想在圆角矩形上再画线条
   （「+」十字、箭头折线等），必须新建子节点挂自己的 Graphics，复用同一实例会让
   圆底 fill 与线条 stroke 互相干扰，线条画不出来。
+- **裁引擎模块时 `sorting-2d` 不能关**：关掉后**整屏黑屏**，但场景正常加载、
+  节点树完整构建、console 零报错、`cc.director.getScene()` 一切正常——
+  静态检查完全看不出来，只有出 web 包实跑才暴露。2026-08-16 实证，回补即恢复。
+  推论：裁模块**必须**每裁一轮就实跑一次，不能只看构建成功与包体数字。
 
 ### 三·七、美术素材现状（2026-08-16）
 
@@ -129,11 +140,94 @@ python3 scripts/dev-server.py 8931
 
 现有资产：物品图 53 张（8 品类）、母体 8 张、导航图标 5 张、
 背景/木托盘/订单卡底/金币/钻石/精力/锁/齿轮各 1 张。
+其中 9 张已转 WebP（见「三·八」），其余 66 张仍是 128×128 PNG。
 
 设计稿里仍缺、且**无法用现有素材近似**的：收银机贴图、吊灯装饰。
 已用现有素材近似还原的：顾客头像（复用品类拟人角色图）、营业中标（纯 Graphics）。
 
 新增 UI 时优先考虑 Graphics 绘制或复用现有贴图，避免依赖拿不到的素材。
+
+### 三·八、包体瘦身（2026-08-16 实测，release 15.0MB → 3.5MB）
+
+**卡提审的是主包 4MB，不是整包 30MB。** 两者能差很远：分包没装资源时整包很宽松，
+主包早已超限。压图前主包约 15.9MB（4 倍于限额），而 `ci/release.mjs` 当时只校验
+整包，一路报「包体 ✅ 15.0MB / 30MB」，毫无预警——脚本已修，现在两条线分开判。
+
+```bash
+node ci/release.mjs --build-only   # 出 release 包 + 整包/主包双重校验
+```
+
+主包 = 总包 − `subpackages/`。手动量：
+
+```bash
+python3 - <<'PY'
+import subprocess
+k=lambda p:int(subprocess.run(['du','-sk',p],capture_output=True,text=True).stdout.split()[0])
+t,s=k('build/wechatgame'),k('build/wechatgame/subpackages')
+print(f'总包 {t/1024:.2f}MB / 主包 {(t-s)/1024:.2f}MB（限额 4MB）')
+PY
+```
+
+#### 两个有效手段（按收益排序）
+
+**1. 裁引擎模块**（`settings/v2/packages/engine.json`）——收益最大
+
+该文件初始是空的 `{"__version__": "1.0.12"}`，等于**打包全量引擎**：bullet（3D 物理）、
+spine、dragon-bones、particle、terrain、tiled-map、physics-2d、rich-text、video、
+webview 全都进包，而本项目是纯 2D UI，一个都没用到。裁到 13 个模块后
+`cocos-js` **3.6MB → 1.4MB**、`assets/internal` 676KB → 168KB。
+
+当前保留：`2d` / `ui` / `base` / `gfx-webgl` / `graphics` / `audio` / `tween` /
+`profiler`（GameManager 调 `hideStats`）/ `affine-transform` / `ui-skew` /
+`custom-pipeline` / `sorting-2d` / `intersection-2d`。
+
+> ⚠️ 改法：**不要手写整个文件**。Cocos 构建时会把它重写成带 `cache` 块的完整结构，
+> 真正生效的是 `modules.configs.default.cache.<模块>._value`，`includeModules`
+> 只是列表。正确顺序是：先随便构建一次让 Cocos 生成 `cache` 骨架，再把不要的
+> 模块 `_value` 改成 `false`。
+>
+> ⚠️ **关 `sorting-2d` 会整屏黑屏**，且无任何报错——详见「三·六」。裁完必须实跑。
+
+**2. 压图**——把超大原图按「实际渲染尺寸 ×2」重采样后转 WebP
+
+WebP 在本项目**已验证可用**（`coin_single.webp` 早就正常出包），不是新风险。
+引用路径不含扩展名（`'sprites/bg/main_bg'`），改格式**代码零改动**，
+产物 `config.json` 注册路径不变。
+
+```bash
+sips -Z <目标长边> in.png --out tmp.png          # 等比缩到实际渲染尺寸 ×2
+cwebp -q 85 -quiet tmp.png -o out.webp           # 无 alpha（背景图）
+cwebp -q 88 -alpha_q 100 -quiet tmp.png -o out.webp   # 有 alpha（UI/图标）
+rm in.png in.png.meta                            # 删原图连同 .meta，Cocos 会重新生成
+```
+
+已处理 7 张（原图尺寸远超渲染尺寸是通病，`energy_bolt` 尤其离谱——
+2048×2048 只为渲染 30pt 图标）：
+
+| 图 | 原图 | 渲染 | 前 → 后 |
+|---|---|---|---|
+| `main_bg` | 1536×2752 | 720×1280 | 4.8MB → 25KB |
+| `order-card` | 928×1152 | 160×214 | 972KB → 12KB |
+| `board-tray` | 677×965 | ~660×930 | 640KB → 28KB |
+| `energy_bolt` | 2048×2048 | 30 / 56 | 928KB → 4KB |
+| `settings` | 1024×1024 | 44 | 640KB → 4KB |
+| `lock` | 728×910 | 未引用 | 528KB → 4KB |
+| `coin` | 768×768 | 30 / 56 | 456KB → 4KB |
+| `diamond` | 768×768 | 30 / 56 | 148KB → 4KB |
+
+改尺寸前先查代码里的实际渲染值（`ICON_SIZE` / `CARD_WIDTH` / `ITEM_BASE_SIZE` 等），
+别照原图尺寸留余量。改大 UI 尺寸时记得回头重压对应贴图，否则会糊。
+
+#### 当前水位与下一步
+
+```
+整包 3.5MB / 30MB ✅      主包 3.95MB / 4MB ✅（只余 0.05MB）
+主包构成：resources 2.1MB + cocos-js 1.4MB + internal 168KB + main 120KB + src 48KB
+```
+
+**主包余量已经很薄，再加资源很容易顶破。** 结构性解法是把玩法专属资源挪进
+bakery / blindbox / collection 三个分包——目前分包只有 40KB 代码、**零资源**，
+等于分包机制还没真正起作用。剩余 66 张 PNG（共约 2.1MB）也可继续转 WebP。
 
 ## 四、判定「跑起来了」的标准
 
@@ -154,6 +248,14 @@ python3 scripts/dev-server.py 8931
 2. ⬜ 安装微信开发者工具 → 导入 `build/wechatgame/` → 模拟器按「四」的标准验证主流程。
 3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
 4. ✅ 真实 AppID 已落位：存放在 `wechat/project.private.config.json`（gitignored），`wechat/project.config.json` 保持占位值 `wx0000000000000000` 不动；每次构建后跑 `npm run sync-appid` 注入产物（脚本 `scripts/sync-appid.sh`，自身不含 AppID）。
-5. ⬜ bakery / blindbox / collection 三个分包的 Cocos 场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。分包创建后再把 `subpackages` 声明加回 `wechat/game.json`——占位声明曾导致开发者工具报 `["subpackages"][N]["root"] 不存在`（2026-08-15 实测，触发条件是误把 `wechat/` 当项目目录导入；正确目录永远是 `build/wechatgame/`）。
-6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。
-7. ⬜ 上线前改 release 构建（勾 MD5 + 压缩引擎）；主包 ≤ 4MB、总包 ≤ 30MB，超限先查 `assets/sprites/` 与分包配置。
+5. ✅ bakery / blindbox / collection 三个分包已落地（2026-08-16）：`assets/bundles/` 下三个页面 + `project.json` Bundle 声明 + `builder.json` 的 `bundleConfig.custom.minigame_subpackage`，构建产物含 `subpackages/`。
+   ⬜ **但分包目前只有代码、零资源**（各约 12KB），玩法专属贴图仍压在主包里——分包机制尚未真正发挥作用，见「三·八」。
+6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。三个 setter 定义在 `platform/wechat.ts`，**当前全项目无人调用**。
+7. ✅ release 包体已达标（2026-08-16）：整包 3.5MB / 30MB、主包 3.95MB / 4MB，手段见「三·八」。
+   ⬜ 主包只余 0.05MB 余量，加资源前先把玩法资源挪进分包。
+   ⬜ 上线前仍需确认 release 构建勾了 MD5 Cache。
+
+> ⚠️ 以上「已完成」项**全部只经过 type-check 与浏览器 web 包验证**。
+> 微信端至今**没有在真实 `wx.*` 环境里跑过一次**（第 2 项未做）。
+> 抖音端的触摸失效、上下黑边、存档损坏三个坑都是模拟器实跑才暴露的——
+> 引擎裁剪这类改动尤其需要在模拟器上复验一遍。
