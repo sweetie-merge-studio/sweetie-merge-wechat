@@ -2,7 +2,10 @@ import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 
 
 import { AD_DIAMOND_REWARD, GameManager } from '../../scripts/manager/GameManager';
 import { addAlignedWidget, createPageChrome, mountBundleSection, showPageToast } from '../../scripts/components/bundle-pages';
+import { createScrollView, type ScrollView } from '../../scripts/components/drag-scroll';
 import { buildSegmentedTabs, type SegmentDef } from '../../scripts/components/segmented-tabs';
+import { isPlaced } from '../../scripts/core/bakery';
+import { DECORATIONS, isOwned, type Decoration } from '../../scripts/core/shop';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { getConfig } from '../../scripts/core/config';
@@ -12,6 +15,9 @@ const { ccclass } = _decorator;
 const PAGE_W = 720;
 const MARGIN = 40;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+
+/** 内容区可视高度（画布 1280 − 顶部 250 − 底部导航留白） */
+const VIEW_H = 860;
 
 const ROW_H = 100;
 const ROW_GAP = 12;
@@ -51,6 +57,7 @@ const SHOP_SEGMENTS: readonly SegmentDef<ShopTab>[] = [
 @ccclass('StorePageComponent')
 export class StorePageComponent extends Component {
   private _content: Node | null = null;
+  private _scroll: ScrollView | null = null;
   private _tabRow: Node | null = null;
   private _activeTab: ShopTab = 'store';
   private _busy = false;
@@ -68,12 +75,16 @@ export class StorePageComponent extends Component {
     // 金币换精力有每日次数上限，次数变化要刷新按钮
     gm.events.on('daily:changed', this._onChanged);
 
-    const content = new Node('content');
-    content.layer = this.node.layer;
-    content.addComponent(UITransform).setContentSize(CONTENT_W, 700);
-    this.node.addChild(content);
-    addAlignedWidget(content, { isAlignTop: true, top: 250 });
-    this._content = content;
+    // 开了 shopDeco 后内容会超过一屏，套滚动区（项目节点触摸链路失效，
+    // 用不了 Cocos ScrollView，见 drag-scroll.ts）
+    const viewport = new Node('viewport');
+    viewport.layer = this.node.layer;
+    viewport.addComponent(UITransform).setContentSize(CONTENT_W, VIEW_H);
+    this.node.addChild(viewport);
+    addAlignedWidget(viewport, { isAlignTop: true, top: 250 });
+
+    this._scroll = createScrollView(viewport, CONTENT_W, VIEW_H);
+    this._content = this._scroll.content;
 
     // 盲盒未开放时不出 Tab 条，页面退化成纯商店（与开关关闭时的旧行为一致）
     if (getConfig().features.blindbox) {
@@ -105,11 +116,15 @@ export class StorePageComponent extends Component {
     const content = this._content;
     if (!content?.isValid) return;
     content.removeAllChildren();
+    // 切 tab 回到顶部，否则从滚到一半的商店切过去会看到空白
+    this._scroll?.scrollToTop();
 
     if (tab === 'store') {
       this._render();
       return;
     }
+    // 盲盒页自己管高度，这里按可视高处理（不滚动）
+    this._scroll?.setContentHeight(VIEW_H);
     // 盲盒是独立分包，首次切换要等加载；失败则退回商店 tab
     mountBundleSection(content, 'blindbox', 'BlindboxPageComponent', () => {
       showPageToast(this.node, '盲盒加载失败，请稍后再试');
@@ -156,7 +171,8 @@ export class StorePageComponent extends Component {
     content.removeAllChildren();
 
     const gm = GameManager.instance;
-    const top = (content.getComponent(UITransform)?.height ?? 0) / 2;
+    // 内容自顶部往下排；总高在末尾回报给滚动区
+    const top = VIEW_H / 2;
 
     this._buildLabel(
       content,
@@ -182,6 +198,81 @@ export class StorePageComponent extends Component {
     // 钻石区：iap / 月卡档位 V1.0 未开放，这里只出「看广告得钻石」
     y -= 16;
     this._buildDiamondAdRow(content, y);
+
+    if (getConfig().features.shopDeco) {
+      y -= ROW_H + 32;
+      this._buildLabel(content, '烘焙坊装饰', 24, new Vec3(-CONTENT_W / 2 + 4, y, 0), {
+        bold: true,
+        anchorLeft: true,
+        width: CONTENT_W,
+      });
+      y -= 30;
+      for (const deco of DECORATIONS) {
+        this._buildDecoRow(content, y, deco);
+        y -= ROW_H + ROW_GAP;
+      }
+    }
+
+    // y 从 VIEW_H/2 往下走到负值，走过的距离即内容总高（末尾留一点底部余量）
+    this._scroll?.setContentHeight(VIEW_H / 2 - y + 24);
+  }
+
+  /** 装饰物一行：图标 + 名称/效果 + 购买（已购则显示状态） */
+  private _buildDecoRow(parent: Node, top: number, deco: Decoration): void {
+    const gm = GameManager.instance;
+
+    const row = new Node(`deco_${deco.id}`);
+    row.layer = parent.layer;
+    row.addComponent(UITransform).setContentSize(CONTENT_W, ROW_H);
+    row.setPosition(new Vec3(0, top - ROW_H / 2, 0));
+    parent.addChild(row);
+
+    const g = row.addComponent(Graphics);
+    g.fillColor = UI_COLORS.cellLight;
+    g.roundRect(-CONTENT_W / 2, -ROW_H / 2, CONTENT_W, ROW_H, 14);
+    g.fill();
+
+    const textX = -CONTENT_W / 2 + 24;
+    this._buildLabel(row, deco.name, 24, new Vec3(textX, 18, 0), {
+      bold: true,
+      anchorLeft: true,
+      width: CONTENT_W - BTN_W - 60,
+    });
+    // 有加成的装饰把效果写在副行，没有的用槽位类别兜底，避免空行
+    const slotHint = deco.slotCategory === 'wall' ? '墙面' : deco.slotCategory === 'counter' ? '柜台' : '地面';
+    this._buildLabel(row, deco.effectLabel ?? `${slotHint}装饰`, 18, new Vec3(textX, -16, 0), {
+      anchorLeft: true,
+      width: CONTENT_W - BTN_W - 60,
+    });
+
+    const owned = isOwned(gm.shop, deco.id);
+    const placed = isPlaced(gm.bakery, deco.id);
+    const btnPos = new Vec3(CONTENT_W / 2 - BTN_W / 2 - 20, 0, 0);
+
+    if (!owned) {
+      const affordable = gm.economy.coins >= deco.price;
+      this._buildButton(row, btnPos, `${deco.price} 金币`, affordable ? BUY_BG : DIM_BG, affordable, () =>
+        this._onBuyDeco(deco),
+      );
+      return;
+    }
+    // 已拥有：摆放入口在烘焙坊页，这里只回显状态
+    this._buildButton(row, btnPos, placed ? '已摆放' : '已拥有', DIM_BG, false, () => undefined);
+  }
+
+  private _onBuyDeco(deco: Decoration): void {
+    if (this._busy) return;
+    const gm = GameManager.instance;
+    if (gm.economy.coins < deco.price) {
+      showPageToast(this.node, `还差 ${deco.price - gm.economy.coins} 金币`);
+      return;
+    }
+    if (gm.buyDeco(deco.id)) {
+      showPageToast(this.node, `已购买「${deco.name}」，去烘焙坊摆放吧`);
+      this._render();
+    } else {
+      showPageToast(this.node, '购买失败，请稍后再试');
+    }
   }
 
   private _buildRow(parent: Node, top: number, opt: EnergyOption): void {

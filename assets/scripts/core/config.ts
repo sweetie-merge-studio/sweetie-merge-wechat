@@ -117,7 +117,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     iap: false,
     blindbox: true,
     diamondSpend: true,
-    shopDeco: false,
+    shopDeco: true,
     collectionRare: true,
   },
 
