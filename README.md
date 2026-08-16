@@ -16,7 +16,7 @@
 
 | 层 | 选型 |
 |----|------|
-| 游戏引擎 | Cocos Creator 3.8.x（工程按 3.8.4 声明，2D 模式，画布 720×1280） |
+| 游戏引擎 | Cocos Creator **3.8.8**（`project.json` 里写 3.8.4 是旧值，装 3.8.8，构建已验证）·2D 模式·画布 720×1280 |
 | 语言 | TypeScript 5.x |
 | 平台目标 | 微信小游戏（wechatgame），单平台 |
 | 状态管理 | 自建 EventBus + GameManager 单例（不引入 Redux/MobX） |
@@ -92,7 +92,9 @@ scripts/
 | **Cocos Dashboard**（内含 Cocos Creator 3.8.x） | 编辑场景、写代码、构建出小游戏包 | https://www.cocos.com/creator/download |
 | **微信开发者工具** | 加载构建产物、模拟器调试、真机预览、上传审核 | [官方下载页](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html) |
 
-在 Cocos Dashboard 的「编辑器」Tab 里安装 **3.8.4**（与 `project.json` 的 `creator.version` 一致，版本不同首次导入会触发迁移）。
+在 Cocos Dashboard 的「编辑器」Tab 里安装 **3.8.8**。
+
+> `project.json` 与 `package.json` 里写的是 `3.8.4`，那是旧值。实际用 3.8.8 构建已验证通过，不必回装旧版。
 
 ### 1. 拉代码
 
@@ -153,6 +155,42 @@ npm run type-check
 - **未在微信开发者工具中验证**：本仓库由抖音端（`sweetie-merge-douyin`）移植而来，代码层面已完成 `tt.*` → `wx.*` 适配，但尚未走完「构建 → 微信开发者工具导入 → 模拟器验证」全流程。
 
 分包的目标设计见 [docs/SD.md](docs/SD.md) 第 4 节。
+
+## core/ 同步机制（改业务逻辑前必读）
+
+`assets/scripts/core/` 是三端共享的纯业务逻辑，**唯一真相源在 Web 端仓库** `sweetie-merge/src/core/`。
+
+本仓库的 `core/` 是同步产物 —— 不要直接改它。要改业务逻辑：
+
+1. 在 `sweetie-merge` 改 `src/core/`
+2. 在那边跑 `node scripts/sync-core.mjs`
+3. 三端一起提交
+
+脚本会自动改写 import 路径、把 Web 的 i18n 调用降级成中文字面量（本端没有 i18n 层）。
+
+**平台专属实现**用标记圈出，同步时脚本原样保留本端版本，不会被 Web 版覆盖：
+
+```ts
+// @platform-specific:start Web 按窗口高度动态定行数；Cocos 画布固定
+export function getBoardRows(): number { return 8; }
+// @platform-specific:end
+```
+
+本端已标记三处：`board.ts` 的棋盘行数、`config.ts` 的深拷贝（小游戏没有 `structuredClone`，用 JSON 兜底）、`tips.ts` 的提示池。`asset-url.ts` 与 `offline-queue.ts` 整份平台专属，不参与同步。
+
+## UI 结构要点
+
+- **商店页是并列双 Tab**（商店 / 盲盒）。盲盒用 `bundle-pages.mountBundleSection()` 动态挂载，保持独立分包、切过去才加载。**别改回「二选一落地页」**——那会顶掉精力钻石档位与装饰物入口。
+- **用不了 Cocos 的 ScrollView**：本项目节点触摸命中链路失效（所有点击都走 `tap-zone.ts` 的全局 input 监听），ScrollView 依赖节点触摸事件收不到。要滚动用 `components/drag-scroll.ts` 的 `createScrollView()`。
+- **弹窗**走 `modal-chrome.ts`，会自动处理触摸隔离。
+
+## 功能开关
+
+`core/config.ts` 的 `DEFAULT_CONFIG.features`。当前本端开启：`collectionRare`、`diamondSpend`、`blindbox`、`shopDeco` 及基础系统；关闭：`season`（数据过期）、`social`（分享奖励无校验）、`iap`（无支付代码，需版号资质）。
+
+完整盘点见 Web 端仓库的 `docs/feature-flags-决策清单.md`。
+
+**盲盒概率公示**只能取自 `core/blindbox.ts` 的 `getDropRates()`，不许在 UI 里另写 rate 文案——平台审核要求展示概率与实际一致。
 
 ## 关联仓库
 
