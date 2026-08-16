@@ -174,9 +174,11 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 // --- 运行时配置（可被云端覆盖） ---
 
+// @platform-specific:start 小游戏运行时没有 structuredClone，双端用 JSON 深拷贝
 // 深拷贝：小游戏运行时没有 structuredClone，用 JSON 兜底（配置是纯数据，无函数/循环引用）。
 // 浅拷贝会让 energy/features 等嵌套对象与 DEFAULT_CONFIG 共享引用，云端配置写入会污染默认值。
 let currentConfig: AppConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as AppConfig;
+// @platform-specific:end
 
 /** 获取当前配置 */
 export function getConfig(): Readonly<AppConfig> {
