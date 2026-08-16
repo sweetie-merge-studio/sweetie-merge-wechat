@@ -2,6 +2,7 @@ import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 
 
 import { getLevelDef, getLevelExpInfo } from '../core/level';
 import { GameManager } from '../manager/GameManager';
+import { openBundlePage } from './bundle-pages';
 import { UI_COLORS } from './ui-factory';
 
 const { ccclass } = _decorator;
@@ -31,6 +32,43 @@ export class CashierCounterComponent extends Component {
 
   protected onLoad(): void {
     this._build();
+    this._mountBakeryButton();
+  }
+
+  /** 烘焙坊入口（bakery 分包页，对齐 Web 版从营业厅进入布置视图） */
+  private _mountBakeryButton(): void {
+    const BTN_W = 120;
+    const BTN_H = 56;
+    const btn = new Node('bakeryButton');
+    btn.layer = this.node.layer;
+    btn.addComponent(UITransform).setContentSize(BTN_W, BTN_H);
+    btn.setPosition(new Vec3(PANEL_W / 2 - BTN_W / 2 - 16, 22, 0));
+    this.node.addChild(btn);
+
+    const g = btn.addComponent(Graphics);
+    g.fillColor = BAR_FILL;
+    g.roundRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 16);
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeColor = PANEL_BORDER;
+    g.roundRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 16);
+    g.stroke();
+
+    const labelNode = new Node('label');
+    labelNode.layer = btn.layer;
+    labelNode.addComponent(UITransform);
+    btn.addChild(labelNode);
+    const label = labelNode.addComponent(Label);
+    label.string = '烘焙坊';
+    label.fontSize = 24;
+    label.lineHeight = 30;
+    label.isBold = true;
+    label.color = new Color(255, 248, 238, 255);
+
+    btn.on(Node.EventType.TOUCH_END, () => {
+      const canvas = this.node.parent;
+      if (canvas) openBundlePage(canvas, 'bakery', 'BakeryPageComponent');
+    });
   }
 
   protected onEnable(): void {
