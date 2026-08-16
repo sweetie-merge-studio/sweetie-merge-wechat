@@ -2,15 +2,15 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "922e1282-cee0-4dd5-bcb4-4f039dc4c8ba",
+  "uuid": "5a3b2fac-c72c-4108-b3a5-8a9527b406ee",
   "files": [
     ".json",
-    ".webp"
+    ".png"
   ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "922e1282-cee0-4dd5-bcb4-4f039dc4c8ba@6c48a",
+      "uuid": "5a3b2fac-c72c-4108-b3a5-8a9527b406ee@6c48a",
       "displayName": "coin_single",
       "id": "6c48a",
       "name": "texture",
@@ -22,7 +22,7 @@
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "922e1282-cee0-4dd5-bcb4-4f039dc4c8ba",
+        "imageUuidOrDatabaseUri": "5a3b2fac-c72c-4108-b3a5-8a9527b406ee",
         "visible": false
       },
       "ver": "1.0.22",
@@ -37,6 +37,6 @@
     "type": "texture",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "922e1282-cee0-4dd5-bcb4-4f039dc4c8ba@6c48a"
+    "redirect": "5a3b2fac-c72c-4108-b3a5-8a9527b406ee@6c48a"
   }
 }

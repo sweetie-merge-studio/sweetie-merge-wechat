@@ -12,7 +12,7 @@
 | TypeScript 类型检查 | ✅ 通过（需先用 Cocos 打开工程生成 `temp/`） |
 | 用 Cocos Creator 打开工程（生成 library/temp/meta） | ✅ 完成（CLI 构建时自动导入，2026-08-15） |
 | Cocos 构建微信小游戏包 | ✅ 通过（CLI，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
-| release 包体达标 | ✅ 整包 3.5MB / 30MB、主包 3.44MB / 4MB（2026-08-16 压图 + 裁引擎，见「三·八」） |
+| release 包体达标 | ✅ 整包 2.77MB / 30MB、主包 2.75MB / 4MB（2026-08-16 量化压图 + 裁引擎，见「三·八」） |
 | 三个玩法分包（bakery / blindbox / collection） | ✅ 已落地（代码进分包，但资源仍在主包） |
 | 浏览器实跑验证（web-mobile 包） | ✅ 画面完整、60 FPS、console 零报错（2026-08-16） |
 | 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
@@ -127,6 +127,11 @@ python3 scripts/dev-server.py 8931
 - **`createRoundRectNode` 已占用宿主节点的 Graphics**：想在圆角矩形上再画线条
   （「+」十字、箭头折线等），必须新建子节点挂自己的 Graphics，复用同一实例会让
   圆底 fill 与线条 stroke 互相干扰，线条画不出来。
+- **贴图不能用 WebP**：微信小游戏不解 WebP，贴图**静默不显示**——资源确实打进包了、
+  `config.json` 注册正常、console 零报错、`spriteFrame` 也非空，纯粹渲染不出来。
+  2026-08-16 实证：9 张 WebP 让背景/木托盘/订单卡底/货币图标在微信里全部消失，
+  **而浏览器 web-mobile 包完全正常**——所以只在浏览器验证会漏掉。已全转回 PNG。
+  压缩改用 `pngquant` 8bit 量化，见「三·八」。**贴图格式必须在微信开发者工具里验。**
 - **裁引擎模块时 `sorting-2d` 不能关**：关掉后**整屏黑屏**，但场景正常加载、
   节点树完整构建、console 零报错、`cc.director.getScene()` 一切正常——
   静态检查完全看不出来，只有出 web 包实跑才暴露。2026-08-16 实证，回补即恢复。
@@ -140,14 +145,15 @@ python3 scripts/dev-server.py 8931
 
 现有资产：物品图 53 张（8 品类）、母体 8 张、导航图标 5 张、
 背景/木托盘/订单卡底/金币/钻石/精力/锁/齿轮各 1 张。
-其中 9 张已转 WebP（见「三·八」），其余 66 张仍是 128×128 PNG。
+**全部 75 张均为 PNG 且已做 8bit 量化**（见「三·八」）——曾有 9 张转过 WebP，
+因微信不解 WebP 导致贴图不显示，2026-08-16 已全数转回。**不要再转 WebP。**
 
 设计稿里仍缺、且**无法用现有素材近似**的：收银机贴图、吊灯装饰。
 已用现有素材近似还原的：顾客头像（复用品类拟人角色图）、营业中标（纯 Graphics）。
 
 新增 UI 时优先考虑 Graphics 绘制或复用现有贴图，避免依赖拿不到的素材。
 
-### 三·八、包体瘦身（2026-08-16 实测，release 15.0MB → 3.5MB）
+### 三·八、包体瘦身（2026-08-16 实测，release 15.0MB → 2.77MB）
 
 **卡提审的是主包 4MB，不是整包 30MB。** 两者能差很远：分包没装资源时整包很宽松，
 主包早已超限。压图前主包约 15.9MB（4 倍于限额），而 `ci/release.mjs` 当时只校验
@@ -188,32 +194,48 @@ webview 全都进包，而本项目是纯 2D UI，一个都没用到。裁到 13
 >
 > ⚠️ **关 `sorting-2d` 会整屏黑屏**，且无任何报错——详见「三·六」。裁完必须实跑。
 
-**2. 压图**——把超大原图按「实际渲染尺寸 ×2」重采样后转 WebP
+**2. 压图**——把超大原图按「实际渲染尺寸 ×2」重采样，**保持 PNG 并做 8bit 量化**
 
-WebP 在本项目**已验证可用**（`coin_single.webp` 早就正常出包），不是新风险。
-引用路径不含扩展名（`'sprites/bg/main_bg'`），改格式**代码零改动**，
-产物 `config.json` 注册路径不变。
+> 🚨 **禁止用 WebP。微信小游戏不解 WebP，贴图会静默不显示。**
+> 2026-08-16 实证：`main_bg` / `board-tray` / `order-card` / 四个图标共 9 张转 WebP 后，
+> **微信里整片背景、棋盘木框、订单卡底、金币钻石图标全部消失**，
+> 但**浏览器 web-mobile 包完全正常**——所以「压图后实跑验证」当时在浏览器里做，
+> 没能暴露问题。console 零报错、`config.json` 注册正常、资源也确实打进包了，
+> 纯粹是运行时解码不出来。已全部转回 PNG。
+>
+> 教训：**贴图格式的验证必须在微信开发者工具里做，浏览器不算数。**
+> 这条和「裁引擎模块必须实跑」是同一类坑——静态检查与浏览器都看不出来。
+
+正确做法是 PNG + `pngquant` 8bit 量化，压缩率接近 WebP 且微信原生支持：
 
 ```bash
 sips -Z <目标长边> in.png --out tmp.png          # 等比缩到实际渲染尺寸 ×2
-cwebp -q 85 -quiet tmp.png -o out.webp           # 无 alpha（背景图）
-cwebp -q 88 -alpha_q 100 -quiet tmp.png -o out.webp   # 有 alpha（UI/图标）
-rm in.png in.png.meta                            # 删原图连同 .meta，Cocos 会重新生成
+pngquant --quality=65-92 --speed 1 --strip \
+  --force --output out.png tmp.png              # 8bit 调色板，保留 alpha
 ```
+
+量化对本项目这种扁平卡通色几乎无损。2026-08-16 把 64 张 items/mothers/nav
+贴图量化（此前从未压过），**1543KB → 573KB**，一次省出 969KB——
+远超 9 张 WebP 转回 PNG 多付的 249KB，主包反而更小了。
 
 已处理 7 张（原图尺寸远超渲染尺寸是通病，`energy_bolt` 尤其离谱——
 2048×2048 只为渲染 30pt 图标）：
 
-| 图 | 原图 | 渲染 | 前 → 后 |
+这 9 张先被缩到合理尺寸（原图尺寸远超渲染尺寸是通病，`energy_bolt` 尤其离谱——
+2048×2048 只为渲染 30pt 图标），当时转成了 WebP，**2026-08-16 因微信不解 WebP
+已全部转回 PNG 并量化**。末列是转回 PNG 后的最终体积：
+
+| 图 | 原图 | 渲染 | 原始 → 现在（量化 PNG） |
 |---|---|---|---|
-| `main_bg` | 1536×2752 | 720×1280 | 4.8MB → 25KB |
-| `order-card` | 928×1152 | 160×214 | 972KB → 12KB |
-| `board-tray` | 677×965 | ~660×930 | 640KB → 28KB |
-| `energy_bolt` | 2048×2048 | 30 / 56 | 928KB → 4KB |
-| `settings` | 1024×1024 | 44 | 640KB → 4KB |
-| `lock` | 728×910 | 未引用 | 528KB → 4KB |
-| `coin` | 768×768 | 30 / 56 | 456KB → 4KB |
-| `diamond` | 768×768 | 30 / 56 | 148KB → 4KB |
+| `main_bg` | 1536×2752 | 720×1280 | 4.8MB → 168KB |
+| `order-card` | 928×1152 | 160×214 | 972KB → 17KB |
+| `board-tray` | 677×965 | ~660×930 | 640KB → 102KB |
+| `coin_single` | — | 图鉴 | — → 28KB |
+| `energy_bolt` | 2048×2048 | 30 / 56 | 928KB → 2KB |
+| `settings` | 1024×1024 | 44 | 640KB → 2KB |
+| `lock` | 728×910 | 未引用 | 528KB → 3KB |
+| `coin` | 768×768 | 30 / 56 | 456KB → 2KB |
+| `diamond` | 768×768 | 30 / 56 | 148KB → 3KB |
 
 改尺寸前先查代码里的实际渲染值（`ICON_SIZE` / `CARD_WIDTH` / `ITEM_BASE_SIZE` 等），
 别照原图尺寸留余量。改大 UI 尺寸时记得回头重压对应贴图，否则会糊。
@@ -221,13 +243,16 @@ rm in.png in.png.meta                            # 删原图连同 .meta，Cocos
 #### 当前水位与下一步
 
 ```
-整包 3.5MB / 30MB ✅      主包 3.44MB / 4MB ✅（余量约 0.56MB）
-主包构成：resources 2.1MB + cocos-js 1.4MB + internal 168KB + main 120KB + src 48KB
+整包 2.77MB / 30MB ✅     主包 2.75MB / 4MB ✅（余量约 1.25MB）
 ```
 
-**余量仍然不宽裕，加资源前先想清楚放主包还是分包。** 结构性解法是把玩法专属资源
-挪进 bakery / blindbox / collection 三个分包——目前分包只有几十 KB 代码、**零资源**，
-等于分包机制还没真正起作用。剩余 66 张 PNG（共约 2.1MB）也可继续转 WebP。
+余量已从 0.05MB 拉到 **1.25MB**——2026-08-16 把 64 张 items/mothers/nav 贴图
+做 8bit 量化（此前从未压过）省下 969KB，同时 9 张 WebP 转回 PNG 多付 249KB，
+净省约 720KB。**全项目已无 WebP。**
+
+下一步仍建议把玩法专属资源挪进 bakery / blindbox / collection 三个分包——
+目前分包只有几十 KB 代码、**零资源**，分包机制还没真正起作用。不过在那之前，
+当前余量已足够支撑常规迭代。
 
 > ⚠️ **量包体前必须用 CLI 重新构建一次**（`node ci/release.mjs --build-only`）。
 > 用 Cocos 编辑器界面出的包**不吃 `engine.json` 的模块裁剪**——2026-08-16 实测，
@@ -256,8 +281,8 @@ rm in.png in.png.meta                            # 删原图连同 .meta，Cocos
 5. ✅ bakery / blindbox / collection 三个分包已落地（2026-08-16）：`assets/bundles/` 下三个页面 + `project.json` Bundle 声明 + `builder.json` 的 `bundleConfig.custom.minigame_subpackage`，构建产物含 `subpackages/`。
    ⬜ **但分包目前只有代码、零资源**（各约 12KB），玩法专属贴图仍压在主包里——分包机制尚未真正发挥作用，见「三·八」。
 6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。三个 setter 定义在 `platform/wechat.ts`，**当前全项目无人调用**。
-7. ✅ release 包体已达标（2026-08-16）：整包 3.5MB / 30MB、主包 3.95MB / 4MB，手段见「三·八」。
-   ⬜ 主包只余 0.05MB 余量，加资源前先把玩法资源挪进分包。
+7. ✅ release 包体已达标（2026-08-16）：整包 2.77MB / 30MB、主包 2.75MB / 4MB，手段见「三·八」。
+   ✅ 主包余量 1.25MB（贴图量化后从 0.05MB 拉开）；把玩法资源挪进分包仍是后续优化项。
    ⬜ 上线前仍需确认 release 构建勾了 MD5 Cache。
 
 > ⚠️ 以上「已完成」项**全部只经过 type-check 与浏览器 web 包验证**。

@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UIOpacity, UITransform, Vec3 } from 'cc';
 
 import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
 import { TapZoneComponent } from './tap-zone';
@@ -13,8 +13,23 @@ const TAB_W = 120;
 const TAB_H = 108;
 /** 选中态底色 #FFE8C0 */
 const TAB_ACTIVE_BG = new Color(255, 232, 192, 255);
+/** 选中胶囊描边 #E8B87A（比通栏描边深一档，压住底色） */
+const TAB_ACTIVE_BORDER = new Color(232, 184, 122, 255);
 /** 未开放文字 #A0784C */
 const TAB_DIM_TEXT = new Color(160, 120, 76, 255);
+/** 通栏投影（半透明暖棕，垫在栏底下方模拟悬浮） */
+const BAR_SHADOW = new Color(111, 74, 57, 38);
+/** 通栏顶部高光 #FFFDF8 */
+const BAR_HILIGHT = new Color(255, 253, 248, 255);
+/** 选中胶囊投影 */
+const TAB_SHADOW = new Color(180, 130, 80, 46);
+/** 未开放项整体降透明度，和可点项拉开层次 */
+const DIM_OPACITY = 150;
+
+/** 取（或补挂）节点的 UIOpacity——整棵子树一起变淡 */
+function opacityOf(node: Node): UIOpacity {
+  return node.getComponent(UIOpacity) ?? node.addComponent(UIOpacity);
+}
 
 /** page: 点击时打开的分包页面（对齐 Web 版 onNavigate：商店 tab 进盲盒视图） */
 const TABS: ReadonlyArray<{
@@ -36,12 +51,31 @@ const TABS: ReadonlyArray<{
  */
 @ccclass('BottomNavComponent')
 export class BottomNavComponent extends Component {
+  /**
+   * 新建一个与通栏同尺寸的子节点并挂上自己的 Graphics。
+   * 宿主节点的 Graphics 已被通栏底占用，投影/高光必须各自独立（见 RUNBOOK 三·六）。
+   */
+  private _addLayer(name: string): Graphics {
+    const node = new Node(name);
+    node.layer = this.node.layer;
+    node.addComponent(UITransform).setContentSize(BAR_W, BAR_H);
+    this.node.addChild(node);
+    return node.addComponent(Graphics);
+  }
+
   protected onLoad(): void {
     const ui = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
     ui.setContentSize(BAR_W, BAR_H);
 
+    // 三层各自独立成子节点，按添加顺序自下而上叠：投影 → 通栏底 → 高光。
+    // 子节点必然渲染在宿主 Graphics 之上，所以通栏底也走子节点，层序才可控。
+    const shadow = this._addLayer('barShadow');
+    shadow.fillColor = BAR_SHADOW;
+    shadow.roundRect(-BAR_W / 2, -BAR_H / 2 - 6, BAR_W, BAR_H, 26);
+    shadow.fill();
+
     // 通栏底
-    const bg = this.node.addComponent(Graphics);
+    const bg = this._addLayer('barBg');
     bg.fillColor = UI_COLORS.pillBg;
     bg.roundRect(-BAR_W / 2, -BAR_H / 2, BAR_W, BAR_H, 24);
     bg.fill();
@@ -49,6 +83,14 @@ export class BottomNavComponent extends Component {
     bg.strokeColor = UI_COLORS.pillBorder;
     bg.roundRect(-BAR_W / 2, -BAR_H / 2, BAR_W, BAR_H, 24);
     bg.stroke();
+
+    // 顶沿高光：一条贴着上边缘的浅色细线，让栏体像有厚度而不是一块平色
+    const hilite = this._addLayer('barHilite');
+    hilite.lineWidth = 2;
+    hilite.strokeColor = BAR_HILIGHT;
+    hilite.moveTo(-BAR_W / 2 + 26, BAR_H / 2 - 2);
+    hilite.lineTo(BAR_W / 2 - 26, BAR_H / 2 - 2);
+    hilite.stroke();
 
     const step = BAR_W / TABS.length;
     for (let i = 0; i < TABS.length; i++) {
@@ -63,10 +105,30 @@ export class BottomNavComponent extends Component {
       this.node.addChild(tabNode);
 
       if (active) {
-        const g = tabNode.addComponent(Graphics);
+        // 选中态：投影 + 描边胶囊，整体上抬 2pt 做「凸起」观感
+        tabNode.setPosition(new Vec3(x, 6, 0));
+
+        const tabShadow = tabNode.addComponent(Graphics);
+        tabShadow.fillColor = TAB_SHADOW;
+        tabShadow.roundRect(-TAB_W / 2, -TAB_H / 2 - 4, TAB_W, TAB_H, 18);
+        tabShadow.fill();
+
+        const pill = new Node('activePill');
+        pill.layer = tabNode.layer;
+        pill.addComponent(UITransform).setContentSize(TAB_W, TAB_H);
+        tabNode.addChild(pill);
+        const g = pill.addComponent(Graphics);
         g.fillColor = TAB_ACTIVE_BG;
-        g.roundRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 16);
+        g.roundRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 18);
         g.fill();
+        g.lineWidth = 2;
+        g.strokeColor = TAB_ACTIVE_BORDER;
+        g.roundRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 18);
+        g.stroke();
+      } else if (!tab.page) {
+        // 未开放玩法整体降透明度（图标同步变淡，仅靠文字色区分不够明显）
+        tabNode.setPosition(new Vec3(x, 2, 0));
+        opacityOf(tabNode).opacity = DIM_OPACITY;
       }
 
       // 图标 + 中文 + 英文小字三行，纵向让位后整体上移

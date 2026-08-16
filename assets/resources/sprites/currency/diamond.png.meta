@@ -2,16 +2,16 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "2644bed8-9665-4cb8-a5b6-f0bd1684bb8c",
+  "uuid": "31e70c7a-0822-489d-9235-d2575ae245c8",
   "files": [
     ".json",
-    ".webp"
+    ".png"
   ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "2644bed8-9665-4cb8-a5b6-f0bd1684bb8c@6c48a",
-      "displayName": "energy_bolt",
+      "uuid": "31e70c7a-0822-489d-9235-d2575ae245c8@6c48a",
+      "displayName": "diamond",
       "id": "6c48a",
       "name": "texture",
       "userData": {
@@ -22,7 +22,7 @@
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "2644bed8-9665-4cb8-a5b6-f0bd1684bb8c",
+        "imageUuidOrDatabaseUri": "31e70c7a-0822-489d-9235-d2575ae245c8",
         "visible": false
       },
       "ver": "1.0.22",
@@ -37,6 +37,6 @@
     "type": "texture",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "2644bed8-9665-4cb8-a5b6-f0bd1684bb8c@6c48a"
+    "redirect": "31e70c7a-0822-489d-9235-d2575ae245c8@6c48a"
   }
 }
