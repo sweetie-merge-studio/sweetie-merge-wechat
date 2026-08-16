@@ -1,6 +1,6 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
-import { UI_COLORS } from './ui-factory';
+import { createSpriteNode, UI_COLORS } from './ui-factory';
 
 const { ccclass } = _decorator;
 
@@ -60,14 +60,19 @@ export class BottomNavComponent extends Component {
         g.fill();
       }
 
+      // 图标（Web 版 nav_*.png 原图）+ 下方文字
+      createSpriteNode('icon', tabNode, tabNode.children.length, 52, 52,
+        `sprites/ui/nav/nav_${tab.key}`, new Vec3(0, 16, 0));
+
       const labelNode = new Node('label');
       labelNode.layer = this.node.layer;
       labelNode.addComponent(UITransform);
+      labelNode.setPosition(new Vec3(0, -30, 0));
       tabNode.addChild(labelNode);
       const label = labelNode.addComponent(Label);
       label.string = tab.label;
-      label.fontSize = active ? 28 : 24;
-      label.lineHeight = 32;
+      label.fontSize = active ? 24 : 22;
+      label.lineHeight = 28;
       label.isBold = active;
       label.color = active ? UI_COLORS.textBrown : TAB_DIM_TEXT;
     }
