@@ -118,7 +118,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     blindbox: false,
     diamondSpend: false,
     shopDeco: false,
-    collectionRare: false,
+    collectionRare: true,
   },
 
   bottomNav: [
