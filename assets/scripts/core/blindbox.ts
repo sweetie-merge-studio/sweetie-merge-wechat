@@ -43,6 +43,21 @@ const PREMIUM_POOL: readonly PoolEntry[] = [
   { type: 'item',            weight: 5 },
 ];
 
+/**
+ * 对外公示的掉落概率（百分比，合计 100）。
+ *
+ * 平台审核要求展示概率必须与实际一致，所以 UI **只能**从这里取值，
+ * 不允许在组件里另写一份 rate 文案 —— 池子调权重时公示会自动跟着变。
+ */
+export function getDropRates(boxType: 'normal' | 'premium'): { type: BlindBoxResult['type']; percent: number }[] {
+  const pool = boxType === 'premium' ? PREMIUM_POOL : NORMAL_POOL;
+  const total = pool.reduce((s, e) => s + e.weight, 0);
+  return pool.map(e => ({ type: e.type, percent: Math.round((e.weight / total) * 1000) / 10 }));
+}
+
+/** 保底次数（公示用）：普通 10 抽必出碎片，高级 5 抽必出 */
+export const PITY_LIMITS = { normal: NORMAL_PITY_LIMIT, premium: PREMIUM_PITY_LIMIT } as const;
+
 // --- 随机工具 ---
 
 function weightedRandom(pool: readonly PoolEntry[]): BlindBoxResult['type'] {
