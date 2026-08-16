@@ -19,10 +19,11 @@ import {
 } from '../core/board';
 import { initAudio, playBgm, playSfx } from './AudioManager';
 import { applyEnv } from '../env';
-import { createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
+import { addEnergyUncapped, coinRefillEnergy, createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
+import { calcOfflineEnergy, formatOfflineDuration } from '../core/offline';
 import { addCoins, addDiamonds, createEconomy, spendCoins, spendDiamonds } from '../core/economy';
 import { claimCollectionReward, createCollection, unlockItem } from '../core/collection';
-import { addExp, createLevelState, getUnlockedCategoriesByLevel } from '../core/level';
+import { addExp, createLevelState, getUnlockedCategoriesByLevel, type LevelState } from '../core/level';
 import { addIngredientShard, addShard, createShardState } from '../core/shard';
 import {
   createBlindBoxState,
@@ -33,23 +34,58 @@ import {
 } from '../core/blindbox';
 import { createBakeryState, placeDeco, removeDeco, type BakeryState } from '../core/bakery';
 import { buyDecoration, createShopState, type ShopState } from '../core/shop';
-import { RARE_ITEM_BY_CATEGORY, type Category } from '../data/items';
+import {
+  completeStep,
+  createTutorialState,
+  getCurrentStep,
+  isTutorialActive,
+  skipTutorial,
+  type TutorialState,
+  type TutorialStepDef,
+  type TutorialStepId,
+} from '../core/tutorial';
+import {
+  advanceTask,
+  checkNewDay,
+  claimSingleTask,
+  claimTaskReward,
+  createDailyState,
+  signIn,
+  type DailyState,
+  type LoginReward,
+} from '../core/daily';
+import {
+  addToBackpack,
+  createBackpack,
+  removeFromBackpack,
+  unlockMoreSlots,
+  unlockSlotsCost,
+  type BackpackState,
+} from '../core/backpack';
+import { RARE_ITEM_BY_CATEGORY, getItemById, type Category } from '../data/items';
 import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
 import { wechatPlatform, wechatInit } from '../platform/wechat';
-import { initOfflineQueue } from '../platform/offline-queue';
+import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
+import { claimAdReward, type AdRewardType } from '../api/rewards';
+import { buyEnergy, type BuyCurrency, type BuyEnergyType } from '../api/energy';
 import { getToken } from '../api/request';
 import { login } from '../api/auth';
 import { EventBus } from '../core/EventBus';
 import { createSpriteNode } from '../components/ui-factory';
 import { CashierCounterComponent } from '../components/CashierCounterComponent';
 import { BottomNavComponent } from '../components/BottomNavComponent';
+import { OfflineRewardModal } from '../components/OfflineRewardModal';
+import { TutorialOverlay } from '../components/TutorialOverlay';
 
 const { ccclass } = _decorator;
 
 const SAVE_DEBOUNCE_MS = 1500;
 const ENERGY_TICK_MS = 1000;
+
+/** 看广告得钻石的数量（对齐 Web DIAMOND_PACKS 的 dp1；商店页展示同一常量） */
+export const AD_DIAMOND_REWARD = 3;
 
 /**
  * 游戏全局状态管家。
@@ -83,11 +119,20 @@ export class GameManager extends Component {
   blindBox: BlindBoxState = createBlindBoxState();
   bakery: BakeryState = createBakeryState();
   shop: ShopState = createShopState();
+  daily: DailyState = createDailyState();
+  backpack: BackpackState = createBackpack();
+  tutorial: TutorialState = createTutorialState();
 
   platform: Platform = wechatPlatform;
 
   private _energyAccumMs = 0;
   private _saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 待领取的离线收益，读档时算出，领取后清空。
+   * 未领取前不发放精力——发放时机由 UI 的领取/翻倍按钮决定。
+   */
+  offlineReward: { duration: string; energy: number } | null = null;
 
   protected onLoad(): void {
     if (GameManager._instance && GameManager._instance !== this) {
@@ -113,6 +158,13 @@ export class GameManager extends Component {
     this._mountUiSections();
     this.loadFromPlatform();
     void this._loginToServer();
+  }
+
+  protected start(): void {
+    // 放在 start：onLoad 里 Widget 尚未对齐，弹窗全屏遮罩会按未定型的尺寸绘制
+    // 离线收益先弹：新手第一次进来没有离线收益，两者实际不会同框
+    OfflineRewardModal.showIfAny(this.node);
+    TutorialOverlay.showIfActive(this.node);
   }
 
   /** 服务端登录（异步、失败降级为离线模式，不阻塞启动） */
@@ -235,9 +287,22 @@ export class GameManager extends Component {
       };
     }
     if (save.blindBox) this.blindBox = { ...save.blindBox };
-    // bakery / shop 结构已由 deserialize 的 safeBakery / safeShop 校验
+    // bakery / shop / daily / backpack 结构已由 deserialize 的 safeXxx 校验
     if (save.bakery) this.bakery = save.bakery as BakeryState;
     if (save.shop) this.shop = save.shop as ShopState;
+    if (save.level) this.level = { ...createLevelState(), ...(save.level as Partial<LevelState>) };
+    // 存档可能来自旧版本（缺字段），用默认态兜底后再覆盖
+    if (save.daily) this.daily = { ...createDailyState(), ...(save.daily as Partial<DailyState>) };
+    if (save.backpack) this.backpack = { ...createBackpack(), ...(save.backpack as Partial<BackpackState>) };
+    if (save.tutorial) {
+      this.tutorial = { ...createTutorialState(), ...(save.tutorial as Partial<TutorialState>) };
+    } else {
+      // 老存档没有 tutorial 字段：已在玩的玩家不该被倒回新手引导
+      this.tutorial = skipTutorial(createTutorialState());
+    }
+    // 读档即结算跨天：重置任务、推进/断连续登录
+    checkNewDay(this.daily);
+    this._checkOfflineReward(save.lastOnline);
     this.autoMatchOrders();
     this.events.emit('save:loaded', save);
   }
@@ -257,6 +322,11 @@ export class GameManager extends Component {
       shop: this.shop,
       shardState: this.shard,
       blindBox: this.blindBox,
+      // level 此前漏传，等级与经验重启即回退到 Lv1
+      level: this.level,
+      daily: this.daily,
+      backpack: this.backpack,
+      tutorial: this.tutorial,
     });
     this.platform.save(data);
   }
@@ -264,8 +334,15 @@ export class GameManager extends Component {
   // --- 游戏动作（薄包装，只负责事件广播 + 自动存档） ---
 
   activateMotherAt(idx: number): boolean {
-    const spawnIdx = activateMother(this.board, idx, this.energy, false);
+    // 引导期间产出位置要拉开距离，让「拖到一起」的手势演示看得清
+    const spawnIdx = activateMother(this.board, idx, this.energy, this.tutorialActive);
     if (spawnIdx < 0) return false;
+
+    // 引导前两步都是「点母棋产出」，按当前步推进
+    const step = this.tutorialStep;
+    if (step?.id === 'tapMother' || step?.id === 'tapMotherAgain') {
+      this.completeTutorialStep(step.id);
+    }
     this.events.emit('board:changed', this.board);
     this.events.emit('energy:changed', this.energy);
     this.events.emit('fx:spawn', spawnIdx);
@@ -282,6 +359,8 @@ export class GameManager extends Component {
     if (merged) {
       this.events.emit('fx:merge', to);
       playSfx('merge');
+      this._advanceDaily('merge_10');
+      this.completeTutorialStep('dragMerge');
     }
     this.autoMatchOrders();
     return merged;
@@ -325,10 +404,17 @@ export class GameManager extends Component {
     this.events.emit('orders:changed', this.order);
   }
 
-  /** 领取已完成订单：消耗棋盘匹配物品 → 发奖励（金币/精力/经验）→ 补新订单 */
-  collectOrder(orderId: string): boolean {
+  /**
+   * 领取已完成订单：消耗棋盘匹配物品 → 发奖励（金币/精力/经验）→ 补新订单。
+   * @returns 实际发放的金币数（未领取成功返回 0），供订单翻倍弹窗计算等额加倍
+   */
+  collectOrder(orderId: string): number {
+    // 引导期间只放行 deliverOrder 那一步，避免玩家跳过教学直接清订单
+    const guard = this.tutorialStep;
+    if (guard && guard.id !== 'deliverOrder') return 0;
+
     const order = this.order.activeOrders.find(o => o.id === orderId);
-    if (!order || !isOrderComplete(order)) return false;
+    if (!order || !isOrderComplete(order)) return 0;
 
     for (const req of order.requirements) {
       if (req.matchedBoardIdx != null && this.board[req.matchedBoardIdx]?.itemId === req.itemId) {
@@ -339,9 +425,10 @@ export class GameManager extends Component {
 
     const difficulty = order.difficulty;
     const reward = completeOrder(this.order, orderId, getConfig().order.maxActive, this.level.level);
-    if (!reward) return false;
+    if (!reward) return 0;
 
-    addCoins(this.economy, Math.max(0, Math.min(Math.floor(reward.coins ?? 0), 10000)));
+    const coins = Math.max(0, Math.min(Math.floor(reward.coins ?? 0), 10000));
+    addCoins(this.economy, coins);
     if (reward.energy) rewardEnergy(this.energy, reward.energy);
 
     // 订单经验：按难度（对齐 Web ORDER_EXP）
@@ -353,14 +440,15 @@ export class GameManager extends Component {
     }
 
     playSfx('order_complete');
+    this._advanceDaily('order_2');
+    this.completeTutorialStep('deliverOrder');
     this.events.emit('board:changed', this.board);
     this.events.emit('economy:changed', this.economy);
     this.events.emit('energy:changed', this.energy);
     this.autoMatchOrders();
     this.scheduleSave();
-    return true;
+    return coins;
   }
-
 
   // --- 图鉴 ---
 
@@ -374,6 +462,330 @@ export class GameManager extends Component {
     if (!claimCollectionReward(this.collection, itemId)) return false;
     addDiamonds(this.economy, 1);
     this.events.emit('collection:changed', this.collection);
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    return true;
+  }
+
+  // --- 每日 ---
+
+  /**
+   * 推进每日任务进度并广播。
+   * 任务不存在时 advanceTask 内部静默返回，这里无需另行判空。
+   */
+  private _advanceDaily(taskId: string, amount = 1): void {
+    advanceTask(this.daily, taskId, amount);
+    this.events.emit('daily:changed', this.daily);
+  }
+
+  /** 每日签到，返回当天的登录奖励（已签到返回 null） */
+  signInDaily(): LoginReward | null {
+    const reward = signIn(this.daily);
+    if (!reward) return null;
+
+    if (reward.coins) addCoins(this.economy, reward.coins);
+    if (reward.energy) rewardEnergy(this.energy, reward.energy);
+    // 第 7 天直接解锁图鉴物品
+    if (reward.unlockItem) {
+      unlockItem(this.collection, reward.unlockItem);
+      this.events.emit('collection:changed', this.collection);
+    }
+
+    this.events.emit('daily:changed', this.daily);
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('energy:changed', this.energy);
+    this.scheduleSave();
+    return reward;
+  }
+
+  /** 领取单个每日任务奖励，返回获得的金币（不可领返回 null） */
+  claimDailyTask(taskId: string): number | null {
+    const coins = claimSingleTask(this.daily, taskId);
+    if (coins == null) return null;
+    addCoins(this.economy, coins);
+    this.events.emit('daily:changed', this.daily);
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    return coins;
+  }
+
+  /** 领取全部任务完成的宝箱奖励，返回金币（不可领返回 null） */
+  claimDailyChest(): number | null {
+    const coins = claimTaskReward(this.daily);
+    if (coins == null) return null;
+    addCoins(this.economy, coins);
+    this.events.emit('daily:changed', this.daily);
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    return coins;
+  }
+
+  // --- 离线收益 ---
+
+  /**
+   * 读档时结算离线恢复的精力。
+   *
+   * 无论是否够门槛都要把 lastTickAt 推进到当前，否则 update 里的 tickEnergy
+   * 会把同一段离线时间再算一遍（与 Web checkOfflineReward 同一处理）。
+   */
+  private _checkOfflineReward(lastOnline: number): void {
+    const now = Date.now();
+    const gained = calcOfflineEnergy(this.energy, lastOnline, now);
+    this.energy.lastTickAt = now;
+    if (gained < 1) return;
+    this.offlineReward = {
+      duration: formatOfflineDuration(lastOnline, now),
+      energy: gained,
+    };
+  }
+
+  /**
+   * 领取离线收益。
+   * @param double 是否翻倍（由广告回调决定，广告未看完按 1x 发放）
+   */
+  collectOfflineReward(double = false): number {
+    const data = this.offlineReward;
+    if (!data) return 0;
+    const amount = double ? data.energy * 2 : data.energy;
+    rewardEnergy(this.energy, amount);
+    this.offlineReward = null;
+    this.events.emit('energy:changed', this.energy);
+    this.events.emit('offline:claimed', amount);
+    this.scheduleSave();
+    return amount;
+  }
+
+  /** 看广告翻倍领取离线收益；广告未播完则按 1x 发放 */
+  async collectOfflineRewardDouble(): Promise<number> {
+    const ok = await this.platform.showRewardedAd();
+    if (ok) this._afterAdWatched();
+    return this.collectOfflineReward(ok);
+  }
+
+  // --- 广告激励 ---
+
+  /**
+   * 广告看完后的通用记账：推进每日任务。
+   * 奖励发放各自处理，这里只做共通部分。
+   */
+  private _afterAdWatched(): void {
+    this._advanceDaily('ad_2');
+  }
+
+  /**
+   * 上报广告奖励给服务端，失败或离线时进离线队列。
+   * 与 Web useGame 的 serverClaimAdReward 分支同构。
+   */
+  private _reportAdReward(rewardType: AdRewardType): void {
+    if (isOnline()) {
+      claimAdReward(rewardType).catch(() => {
+        enqueue({ type: 'adReward', payload: { rewardType } });
+      });
+    } else {
+      enqueue({ type: 'adReward', payload: { rewardType } });
+    }
+  }
+
+  /** 精力耗尽时看广告补 20 点（不受上限限制） */
+  async watchAdForEnergy(): Promise<boolean> {
+    const ok = await this.platform.showRewardedAd();
+    if (!ok) return false;
+    addEnergyUncapped(this.energy, getConfig().energy.adReward);
+    this._afterAdWatched();
+    this.events.emit('energy:changed', this.energy);
+    this.scheduleSave();
+    this._reportAdReward('energy');
+    return true;
+  }
+
+  /** 看广告得钻石 */
+  async watchAdForDiamonds(): Promise<boolean> {
+    const ok = await this.platform.showRewardedAd();
+    if (!ok) return false;
+    addDiamonds(this.economy, AD_DIAMOND_REWARD);
+    this._afterAdWatched();
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    this._reportAdReward('diamonds');
+    return true;
+  }
+
+  /**
+   * 看广告直接获得稀有物品。
+   * 空位在广告播放前后各查一次：广告期间棋盘可能被订单占满（race condition）。
+   */
+  async watchAdForRareItem(itemId: string): Promise<boolean> {
+    if (!getItemById().get(itemId)) return false;
+    // 预检，避免白弹一次广告
+    if (findEmptyCell(this.board) < 0) return false;
+
+    const ok = await this.platform.showRewardedAd();
+    if (!ok) return false;
+    this._afterAdWatched();
+
+    const slotIdx = findEmptyCell(this.board);
+    // 广告已看完，棋盘满了也不回收奖励，只是这次落不下去
+    if (slotIdx < 0) {
+      this.scheduleSave();
+      return true;
+    }
+    this.board[slotIdx] = { itemId };
+    unlockItem(this.collection, itemId);
+    this.events.emit('board:changed', this.board);
+    this.events.emit('collection:changed', this.collection);
+    this.autoMatchOrders();
+    this.scheduleSave();
+    return true;
+  }
+
+  /** 订单翻倍：看广告后再发一份等额金币 */
+  async doubleOrderReward(baseCoins: number): Promise<boolean> {
+    const ok = await this.platform.showRewardedAd();
+    if (!ok) return false;
+    addCoins(this.economy, baseCoins);
+    this._afterAdWatched();
+    this.events.emit('economy:changed', this.economy);
+    this.scheduleSave();
+    return true;
+  }
+
+  // --- 新手引导 ---
+
+  /** 当前应展示的引导步骤（null = 已结束/已跳过） */
+  get tutorialStep(): TutorialStepDef | null {
+    return getCurrentStep(this.tutorial);
+  }
+
+  /** 是否处于引导流程中 */
+  get tutorialActive(): boolean {
+    return isTutorialActive(this.tutorial);
+  }
+
+  /**
+   * 标记引导步骤完成。
+   * 只有「当前步骤」能被完成，避免动作乱序把后面的步骤提前打勾。
+   */
+  completeTutorialStep(stepId: TutorialStepId): void {
+    if (this.tutorialStep?.id !== stepId) return;
+    this.tutorial = completeStep(this.tutorial, stepId);
+    this.events.emit('tutorial:changed', this.tutorial);
+    this.scheduleSave();
+  }
+
+  /** 跳过全部引导 */
+  skipTutorial(): void {
+    if (this.tutorial.skipped) return;
+    this.tutorial = skipTutorial(this.tutorial);
+    this.events.emit('tutorial:changed', this.tutorial);
+    this.scheduleSave();
+  }
+
+  // --- 商店：精力购买 ---
+
+  /**
+   * 上报购买精力，失败或离线时进离线队列。
+   * 与 Web useGame 的 serverBuyEnergy 分支同构。
+   */
+  private _reportBuyEnergy(currency: BuyCurrency, buyType: BuyEnergyType, amount?: number): void {
+    const payload = { currency, buyType, amount };
+    if (isOnline()) {
+      buyEnergy({ currency, type: buyType, amount }).catch(() => {
+        enqueue({ type: 'buyEnergy', payload });
+      });
+    } else {
+      enqueue({ type: 'buyEnergy', payload });
+    }
+  }
+
+  /** 钻石买固定点数精力（不受上限限制） */
+  buyEnergyWithDiamonds(cost: number, energyAmount: number): boolean {
+    if (!spendDiamonds(this.economy, cost)) return false;
+    addEnergyUncapped(this.energy, energyAmount);
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('energy:changed', this.energy);
+    this.scheduleSave();
+    this._reportBuyEnergy('diamonds', 'fixed', energyAmount);
+    return true;
+  }
+
+  /** 钻石一键回满精力；已满则不消费 */
+  refillEnergyWithDiamonds(cost: number): boolean {
+    if (this.energy.current >= this.energy.max) return false;
+    if (!spendDiamonds(this.economy, cost)) return false;
+    this.energy.current = this.energy.max;
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('energy:changed', this.energy);
+    this.scheduleSave();
+    this._reportBuyEnergy('diamonds', 'refill');
+    return true;
+  }
+
+  /** 今日金币购买精力的剩余次数 */
+  get coinRefillRemaining(): number {
+    return Math.max(0, getConfig().energy.coinRefillDailyLimit - this.daily.coinRefillCount);
+  }
+
+  /** 金币买精力，每日有次数上限 */
+  buyEnergyWithCoins(): boolean {
+    const cfg = getConfig().energy;
+    if (this.daily.coinRefillCount >= cfg.coinRefillDailyLimit) return false;
+    if (!spendCoins(this.economy, cfg.coinRefillCost)) return false;
+    coinRefillEnergy(this.energy);
+    this.daily.coinRefillCount += 1;
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('energy:changed', this.energy);
+    this.events.emit('daily:changed', this.daily);
+    this.scheduleSave();
+    this._reportBuyEnergy('coins', 'fixed', cfg.coinRefillAmount);
+    return true;
+  }
+
+  // --- 背包 ---
+
+  /** 解锁下一个背包格子所需钻石 */
+  get backpackUnlockCost(): number {
+    return unlockSlotsCost(this.backpack.unlockedSlots);
+  }
+
+  /** 把棋盘上的物品收进背包，成功后清空原格 */
+  storeToBackpack(boardIdx: number): boolean {
+    const itemId = this.board[boardIdx]?.itemId;
+    if (!itemId) return false;
+    if (!addToBackpack(this.backpack, itemId)) return false;
+
+    this.board[boardIdx] = {};
+    this.events.emit('backpack:changed', this.backpack);
+    this.events.emit('board:changed', this.board);
+    this.autoMatchOrders();
+    this.scheduleSave();
+    return true;
+  }
+
+  /** 从背包取出物品放回棋盘空位；棋盘已满则保持原状 */
+  takeFromBackpack(itemId: string): boolean {
+    const emptyIdx = findEmptyCell(this.board);
+    if (emptyIdx < 0) return false;
+    if (!removeFromBackpack(this.backpack, itemId)) return false;
+
+    this.board[emptyIdx] = { itemId };
+    this.events.emit('backpack:changed', this.backpack);
+    this.events.emit('board:changed', this.board);
+    this.autoMatchOrders();
+    this.scheduleSave();
+    return true;
+  }
+
+  /** 花钻石解锁一个背包格子 */
+  unlockBackpackSlot(): boolean {
+    if (this.backpack.unlockedSlots >= this.backpack.maxSlots) return false;
+    // 先扣费再解锁：unlockMoreSlots 成功后无法回滚扣款
+    const cost = this.backpackUnlockCost;
+    if (!spendDiamonds(this.economy, cost)) return false;
+    if (!unlockMoreSlots(this.backpack)) {
+      addDiamonds(this.economy, cost);
+      return false;
+    }
+    this.events.emit('backpack:changed', this.backpack);
     this.events.emit('economy:changed', this.economy);
     this.scheduleSave();
     return true;

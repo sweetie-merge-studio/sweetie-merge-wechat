@@ -12,6 +12,7 @@ import {
   Widget,
 } from 'cc';
 
+import { MODAL_PREFIX } from './modal-chrome';
 import { TapZoneComponent } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 
@@ -54,12 +55,20 @@ export function addAlignedWidget(node: Node, align: Partial<Widget>): Widget {
 }
 
 /**
- * 是否有分包页面正开着。
+ * 覆盖全屏、需要挡住下层主界面触摸的节点名前缀。
+ * 分包页面之外，主场景内的模态弹窗（离线收益、订单翻倍等）同样要挡。
+ */
+const OVERLAY_PREFIXES = ['BundlePage_', MODAL_PREFIX] as const;
+
+/**
+ * 是否有分包页面或模态弹窗正开着。
  * 主界面的全局输入监听（棋盘/订单/导航等）不吃 BlockInputEvents，
- * 需要各自用这个判断挡掉页面下层的误触。
+ * 需要各自用这个判断挡掉覆盖层下方的误触。
  */
 export function hasOpenBundlePage(host: Node): boolean {
-  return host.children.some(c => c.isValid && c.name.startsWith('BundlePage_'));
+  return host.children.some(
+    c => c.isValid && OVERLAY_PREFIXES.some(p => c.name.startsWith(p)),
+  );
 }
 
 /**

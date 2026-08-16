@@ -5,6 +5,7 @@ import { getOrderItemName, isOrderComplete } from '../core/order';
 import { getItemSpritePath } from '../data/items';
 import { GameManager } from '../manager/GameManager';
 import { hasOpenBundlePage } from './bundle-pages';
+import { OrderDoubleModal } from './OrderDoubleModal';
 import { TapZoneComponent } from './tap-zone';
 import { createRoundRectNode, createSpriteNode, UI_COLORS } from './ui-factory';
 
@@ -92,7 +93,10 @@ export class OrderPanelComponent extends Component {
       if (Math.abs(local.x - centerX) > CARD_WIDTH / 2) continue;
       const order = this._visibleOrders[i];
       if (isOrderComplete(order)) {
-        GameManager.instance.collectOrder(order.id);
+        const coins = GameManager.instance.collectOrder(order.id);
+        // 基础奖励已入账，弹窗只问要不要看广告再拿一份等额金币
+        const canvas = this.node.parent;
+        if (coins > 0 && canvas) OrderDoubleModal.show(canvas, coins);
       }
       return;
     }

@@ -1,0 +1,16 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "907bc827-c441-4e43-b00b-29b60db42c99",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "compressionType": {},
+    "isRemoteBundle": {},
+    "isBundle": true,
+    "bundleConfigID": "minigame_subpackage",
+    "bundleName": "daily",
+    "priority": 2
+  }
+}

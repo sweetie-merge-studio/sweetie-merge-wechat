@@ -1,5 +1,7 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UIOpacity, UITransform, Vec3 } from 'cc';
 
+import { getConfig } from '../core/config';
+import { GameManager } from '../manager/GameManager';
 import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
@@ -31,23 +33,42 @@ function opacityOf(node: Node): UIOpacity {
   return node.getComponent(UIOpacity) ?? node.addComponent(UIOpacity);
 }
 
-/** page: 点击时打开的分包页面（对齐 Web 版 onNavigate：商店 tab 进盲盒视图） */
+interface TabPage {
+  bundle: string;
+  component: string;
+}
+
+/** page: 点击时打开的分包页面 */
 const TABS: ReadonlyArray<{
   key: string;
   label: string;
   en: string;
-  page?: { bundle: string; component: string };
+  page?: TabPage;
 }> = [
-  { key: 'daily', label: '每日', en: 'Daily' },
+  { key: 'daily', label: '每日', en: 'Daily', page: { bundle: 'daily', component: 'DailyPageComponent' } },
   { key: 'collection', label: '图鉴', en: 'Journal', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
   { key: 'home', label: '首页', en: 'Home' },
-  { key: 'backpack', label: '背包', en: 'Backpack' },
-  { key: 'shop', label: '商店', en: 'Shop', page: { bundle: 'blindbox', component: 'BlindboxPageComponent' } },
+  { key: 'backpack', label: '背包', en: 'Backpack', page: { bundle: 'backpack', component: 'BackpackPageComponent' } },
+  // 商店落地页取决于运行时 feature flag，见 resolveShopPage；这里给个占位保证不被判为「未开放」
+  { key: 'shop', label: '商店', en: 'Shop', page: { bundle: 'store', component: 'StorePageComponent' } },
 ];
+
+const STORE_PAGE: TabPage = { bundle: 'store', component: 'StorePageComponent' };
+const BLINDBOX_PAGE: TabPage = { bundle: 'blindbox', component: 'BlindboxPageComponent' };
+
+/**
+ * 商店 tab 的落地页。
+ *
+ * 对齐 Web ShopFullView：盲盒受 features.blindbox 控制（V1.0 关闭），
+ * 关闭时进精力商店。此前微信端无视开关直接进盲盒，与 Web 行为不一致。
+ */
+function resolveShopPage(): TabPage {
+  return getConfig().features.blindbox ? BLINDBOX_PAGE : STORE_PAGE;
+}
 
 /**
  * 底部导航（对齐 Web 版 BottomNav.vue 的五格结构）。
- * 图鉴/商店已接分包页面；每日/背包玩法未就绪，点击提示敬请期待。
+ * 首页外的四个 tab 均已接分包页面。
  */
 @ccclass('BottomNavComponent')
 export class BottomNavComponent extends Component {
@@ -163,12 +184,17 @@ export class BottomNavComponent extends Component {
       enLabel.color = textColor;
 
       // 点击走全局输入版点击区（节点触摸事件在本项目收不到，见 tap-zone.ts）
-      const page = tab.page;
-      if (tab.key !== 'home') {
+      const tabKey = tab.key;
+      const staticPage = tab.page;
+      if (tabKey !== 'home') {
         const zone = tabNode.addComponent(TapZoneComponent);
         zone.onTap = () => {
           const canvas = this.node.parent;
           if (!canvas || hasOpenBundlePage(canvas)) return;
+          // 引导最后一步是「点每日签到」，进页即算完成
+          if (tabKey === 'daily') GameManager.instance.completeTutorialStep('dailyCheckIn');
+          // 商店落地页取决于运行时的 feature flag（服务端配置可覆盖），点击时才解析
+          const page = tabKey === 'shop' ? resolveShopPage() : staticPage;
           if (page) openBundlePage(canvas, page.bundle, page.component);
           else showPageToast(canvas, `「${tab.label}」玩法开发中，敬请期待`);
         };

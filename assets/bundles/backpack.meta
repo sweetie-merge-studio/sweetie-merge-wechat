@@ -1,0 +1,16 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "08a54100-fd76-4c43-a7b1-5770d4106931",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "compressionType": {},
+    "isRemoteBundle": {},
+    "isBundle": true,
+    "bundleConfigID": "minigame_subpackage",
+    "bundleName": "backpack",
+    "priority": 2
+  }
+}

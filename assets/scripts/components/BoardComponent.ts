@@ -4,7 +4,9 @@ import type { Cell } from '../core/types';
 import { BOARD_COLS, BOARD_ROWS, BOARD_LENGTH } from '../core/board';
 import { isMother } from '../data/items';
 import { GameManager } from '../manager/GameManager';
-import { hasOpenBundlePage } from './bundle-pages';
+import { getConfig } from '../core/config';
+import { hasOpenBundlePage, showPageToast } from './bundle-pages';
+import { EnergyAdModal } from './EnergyAdModal';
 import { ItemComponent } from './ItemComponent';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
 
@@ -154,12 +156,29 @@ export class BoardComponent extends Component {
     const itemId = gm.board[fromIdx]?.itemId;
 
     if (toIdx === fromIdx && itemId && isMother(itemId)) {
-      gm.activateMotherAt(fromIdx);
+      if (!gm.activateMotherAt(fromIdx)) this._toastMotherFailure(gm);
     } else if (toIdx >= 0 && toIdx !== fromIdx) {
       gm.dragMergeAt(fromIdx, toIdx);
     }
     // 无论动作是否成立都重渲染，把拖拽中的节点归位
     this._render(gm.board);
+  }
+
+  /**
+   * 母棋产出失败的反馈。
+   * 判定顺序与 core/board.ts 的 activateMother 一致：先看有没有空位，再看精力。
+   * 棋盘满只能靠玩家自己腾格子，精力不足则可以看广告补上，直接弹广告弹窗。
+   */
+  private _toastMotherFailure(gm: GameManager): void {
+    const canvas = this.node.parent;
+    if (!canvas) return;
+    if (gm.board.every(c => c.itemId)) {
+      showPageToast(canvas, '棋盘满了，先合成或交付订单腾出格子');
+      return;
+    }
+    if (!EnergyAdModal.show(canvas)) {
+      showPageToast(canvas, `精力不足，需要 ${getConfig().energy.motherCost} 点`);
+    }
   }
 
   /** 构建 6×8 个空格子节点（仅一次） */
