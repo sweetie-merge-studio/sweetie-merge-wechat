@@ -12,7 +12,7 @@
 | TypeScript 类型检查 | ✅ 通过（需先用 Cocos 打开工程生成 `temp/`） |
 | 用 Cocos Creator 打开工程（生成 library/temp/meta） | ✅ 完成（CLI 构建时自动导入，2026-08-15） |
 | Cocos 构建微信小游戏包 | ✅ 通过（CLI，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
-| release 包体达标 | ✅ 整包 3.5MB / 30MB、主包 3.95MB / 4MB（2026-08-16 压图 + 裁引擎，见「三·八」） |
+| release 包体达标 | ✅ 整包 3.5MB / 30MB、主包 3.44MB / 4MB（2026-08-16 压图 + 裁引擎，见「三·八」） |
 | 三个玩法分包（bakery / blindbox / collection） | ✅ 已落地（代码进分包，但资源仍在主包） |
 | 浏览器实跑验证（web-mobile 包） | ✅ 画面完整、60 FPS、console 零报错（2026-08-16） |
 | 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
@@ -221,13 +221,18 @@ rm in.png in.png.meta                            # 删原图连同 .meta，Cocos
 #### 当前水位与下一步
 
 ```
-整包 3.5MB / 30MB ✅      主包 3.95MB / 4MB ✅（只余 0.05MB）
+整包 3.5MB / 30MB ✅      主包 3.44MB / 4MB ✅（余量约 0.56MB）
 主包构成：resources 2.1MB + cocos-js 1.4MB + internal 168KB + main 120KB + src 48KB
 ```
 
-**主包余量已经很薄，再加资源很容易顶破。** 结构性解法是把玩法专属资源挪进
-bakery / blindbox / collection 三个分包——目前分包只有 40KB 代码、**零资源**，
+**余量仍然不宽裕，加资源前先想清楚放主包还是分包。** 结构性解法是把玩法专属资源
+挪进 bakery / blindbox / collection 三个分包——目前分包只有几十 KB 代码、**零资源**，
 等于分包机制还没真正起作用。剩余 66 张 PNG（共约 2.1MB）也可继续转 WebP。
+
+> ⚠️ **量包体前必须用 CLI 重新构建一次**（`node ci/release.mjs --build-only`）。
+> 用 Cocos 编辑器界面出的包**不吃 `engine.json` 的模块裁剪**——2026-08-16 实测，
+> GUI 产物 `cocos-js` 仍是 3.4MB、主包 6.40MB，而同一份配置 CLI 出包只有 1.4MB /
+> 3.44MB。看到主包突然变大，先确认产物是谁出的，别急着以为改动回退了。
 
 ## 四、判定「跑起来了」的标准
 
