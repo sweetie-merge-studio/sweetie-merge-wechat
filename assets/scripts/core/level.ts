@@ -207,15 +207,23 @@ export function confirmLevelUp(state: LevelState): LevelUpResult | null {
   if (potentialLevel <= state.level) return null;
 
   // 升一级
-  const result = applyLevelUp(state, state.level + 1);
+  let result = applyLevelUp(state, state.level + 1);
 
-  // 检查是否还有更多级可以连续升（后续级如果也够经验且免费则继续）
-  const furtherLevel = calcLevel(state.exp);
-  if (furtherLevel > state.level) {
+  // 连续升级：后续免费级直接升掉，遇到收费级则挂起等玩家付费确认。
+  // 不自动升免费级会让 pendingLevelUp 被清空、等级停在半路且没有 UI 入口再领。
+  while (calcLevel(state.exp) > state.level) {
     const nextDef = getLevelDef(state.level + 1);
     if (nextDef.coinCost > 0) {
       state.pendingLevelUp = true;
+      break;
     }
+    const next = applyLevelUp(state, state.level + 1);
+    const unlockedCategories = [...result.unlockedCategories, ...next.unlockedCategories];
+    result = {
+      ...next,
+      unlockedCategories,
+      unlockedCategory: unlockedCategories[0],
+    };
   }
 
   return result;
