@@ -51,7 +51,7 @@ const STAGE_TITLES = [
 
 function stageTitle(level: number): string {
   const stage = Math.min(Math.floor((level - 1) / 10), STAGE_TITLES.length - 1);
-  return levelTitle(stage, STAGE_TITLES[stage]);
+  return STAGE_TITLES[stage];
 }
 
 /** 品类解锁映射：在哪一级解锁 */
