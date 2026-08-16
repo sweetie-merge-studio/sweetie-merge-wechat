@@ -1,7 +1,7 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
-import { createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { BAKERY_SLOTS, getSlotDeco } from '../../scripts/core/bakery';
@@ -56,20 +56,14 @@ export class BakeryPageComponent extends Component {
     this._effectLabel.fontSize = 24;
     this._effectLabel.lineHeight = 30;
     this._effectLabel.color = UI_COLORS.textBrown;
-    const ew = effectNode.addComponent(Widget);
-    ew.isAlignTop = true;
-    ew.top = 246;
-    ew.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(effectNode, { isAlignTop: true, top: 246 });
 
     // 槽位摆放区
     const scene = new Node('scene');
     scene.layer = this.node.layer;
     scene.addComponent(UITransform).setContentSize(SCENE_W, SCENE_H);
     this.node.addChild(scene);
-    const sw = scene.addComponent(Widget);
-    sw.isAlignTop = true;
-    sw.top = 300;
-    sw.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(scene, { isAlignTop: true, top: 300 });
     this._sceneArea = scene;
 
     // 底部装饰栏
@@ -77,10 +71,7 @@ export class BakeryPageComponent extends Component {
     strip.layer = this.node.layer;
     strip.addComponent(UITransform).setContentSize(SCENE_W, CHIP_H + 60);
     this.node.addChild(strip);
-    const dw = strip.addComponent(Widget);
-    dw.isAlignBottom = true;
-    dw.bottom = 60;
-    dw.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(strip, { isAlignBottom: true, bottom: 60 });
     this._decoStrip = strip;
 
     this._render();

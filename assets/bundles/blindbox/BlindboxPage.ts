@@ -1,7 +1,7 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
-import { createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import type { BlindBoxResult } from '../../scripts/core/types';
@@ -76,10 +76,7 @@ export class BlindboxPageComponent extends Component {
     picker.layer = this.node.layer;
     picker.addComponent(UITransform).setContentSize(660, 160);
     this.node.addChild(picker);
-    const pw = picker.addComponent(Widget);
-    pw.isAlignTop = true;
-    pw.top = 770;
-    pw.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(picker, { isAlignTop: true, top: 770 });
     this._pickerRow = picker;
 
     this._refreshWallet();
@@ -99,10 +96,7 @@ export class BlindboxPageComponent extends Component {
     label.lineHeight = fontSize + 8;
     label.isBold = true;
     label.color = UI_COLORS.textBrown;
-    const w = node.addComponent(Widget);
-    w.isAlignTop = true;
-    w.top = top;
-    w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(node, { isAlignTop: true, top });
     return label;
   }
 
@@ -128,12 +122,7 @@ export class BlindboxPageComponent extends Component {
     box.layer = this.node.layer;
     box.addComponent(UITransform).setContentSize(BOX_W, BOX_H);
     this.node.addChild(box);
-    const w = box.addComponent(Widget);
-    w.isAlignTop = true;
-    w.top = 380;
-    w.horizontalCenter = x;
-    w.isAlignHorizontalCenter = true;
-    w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(box, { isAlignTop: true, top: 380, isAlignHorizontalCenter: true, horizontalCenter: x });
 
     const g = box.addComponent(Graphics);
     g.fillColor = bg;
