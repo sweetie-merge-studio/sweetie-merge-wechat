@@ -185,7 +185,7 @@ export function removeAllMothers(board: Cell[]): void {
 /** 放置单个母棋到棋盘（先清除旧母棋） */
 export function placeSingleMother(board: Cell[], category: string): boolean {
   removeAllMothers(board);
-  const motherId = getMotherItemId(category as Category);
+  const motherId = getMotherItemId(category as import('../data/items').Category);
   const emptyIdx = findEmptyCell(board);
   if (emptyIdx < 0) return false;
   board[emptyIdx] = { itemId: motherId };
@@ -194,7 +194,7 @@ export function placeSingleMother(board: Cell[], category: string): boolean {
 
 /** 添加一个母棋到棋盘（同类型母棋只能存在一个） */
 export function addMotherToBoard(board: Cell[], category: string): boolean {
-  const motherId = getMotherItemId(category as Category);
+  const motherId = getMotherItemId(category as import('../data/items').Category);
   // 已存在同类型母棋则跳过
   if (board.some(c => c.itemId === motherId)) return false;
   const emptyIdx = findRandomEmptyCell(board);

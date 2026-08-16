@@ -1,6 +1,6 @@
 import type { ItemId } from './types';
 
-/** 背包格子总数 6x6 */
+/** 背包格子总数 6×6 */
 export const BACKPACK_MAX_SLOTS = 36;
 /** 初始解锁格子数 */
 export const BACKPACK_INITIAL_SLOTS = 10;
