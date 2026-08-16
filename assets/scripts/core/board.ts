@@ -9,12 +9,14 @@ import { getConfig } from './config';
 export const BOARD_COLS = 6;
 export const BOARD_SIZE = BOARD_COLS; // 列数，兼容旧引用
 
+// @platform-specific:start Web 按窗口高度动态定行数；Cocos 画布固定，双端各返回定值
 /**
  * Cocos Canvas 环境固定返回 8 行
  */
 export function getBoardRows(): number {
   return 8;
 }
+// @platform-specific:end
 
 /** 当前设备的行数（应用启动时确定，不随窗口变化） */
 export const BOARD_ROWS = getBoardRows();

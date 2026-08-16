@@ -66,6 +66,7 @@ export const TIPS: TipConfig = {
   ],
 };
 
+// @platform-specific:start Web 走 i18n 提示池并回退本地；双端无 i18n，直接用 TIPS
 /** 根据玩家等级获取合适的提示池 */
 export function getTipPool(level: number): string[] {
   if (level <= 3) {
@@ -79,6 +80,7 @@ export function getTipPool(level: number): string[] {
     ...TIPS.feature,
   ];
 }
+// @platform-specific:end
 
 const MAX_TIP_LENGTH = 18;
 
