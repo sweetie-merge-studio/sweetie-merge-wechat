@@ -3,7 +3,7 @@ import { BlockInputEvents, Color, Graphics, Label, Node, UIOpacity, UITransform,
 import { makeNode } from './collection-effects';
 import { PopInEffect } from './effect-pop-in';
 import { addLabel, addSprite } from './collection-cells';
-import { TapZoneComponent } from './tap-zone';
+import { TapZoneComponent, popModalLayer, pushModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 
 /**
@@ -48,13 +48,18 @@ export function showItemDetail(pageRoot: Node, info: DetailInfo): void {
   const close = overlay.addComponent(TapZoneComponent);
   close.onTap = () => closeItemDetail(pageRoot);
 
+  // 弹窗期间独占点击：否则下层返回键/Tab/格子的全局点击区照样会响应
+  pushModalLayer(overlay);
+
   buildModal(overlay, info);
 }
 
 /** 关闭详情弹窗（没开则什么都不做） */
 export function closeItemDetail(pageRoot: Node): void {
   const old = pageRoot.getChildByName(DETAIL_NODE);
-  if (old?.isValid) old.destroy();
+  if (!old?.isValid) return;
+  popModalLayer(old);
+  old.destroy();
 }
 
 /** 弹窗主体：大图 + 名称 + 副标题，整体做一次 back-out 弹出 */
