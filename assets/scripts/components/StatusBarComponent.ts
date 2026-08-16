@@ -1,4 +1,4 @@
-import { _decorator, Component, Label, Vec3 } from 'cc';
+import { _decorator, Component, Label, UITransform, Vec3 } from 'cc';
 
 import type { EconomyState, EnergyState } from '../core/types';
 import { GameManager } from '../manager/GameManager';
@@ -62,19 +62,24 @@ export class StatusBarComponent extends Component {
       if (!label) continue;
       const labelNode = label.node;
       const labelIndex = labelNode.getSiblingIndex();
+      const pillPos = labelNode.getPosition().clone();
       // 药丸底板插到 label 之前（渲染在文字下方）
       createRoundRectNode(
         `${labelNode.name}_pill`, this.node, labelIndex,
         PILL_WIDTH, PILL_HEIGHT, PILL_HEIGHT / 2,
         UI_COLORS.pillBg, UI_COLORS.pillBorder,
-        labelNode.getPosition().clone(),
+        pillPos,
       );
       // 图标放在药丸左侧、文字上层
-      const iconPos = labelNode.getPosition().clone().add(new Vec3(ICON_OFFSET_X, 0, 0));
+      const iconPos = pillPos.clone().add(new Vec3(ICON_OFFSET_X, 0, 0));
       createSpriteNode(
         `${labelNode.name}_icon`, this.node, labelNode.getSiblingIndex() + 1,
         ICON_SIZE, ICON_SIZE, icon, iconPos,
       );
+      // 文字紧跟图标左对齐，长短数字都不会压到图标
+      labelNode.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
+      labelNode.setPosition(new Vec3(pillPos.x + ICON_OFFSET_X + ICON_SIZE / 2 + 8, pillPos.y, 0));
+      label.horizontalAlign = Label.HorizontalAlign.LEFT;
       label.color = UI_COLORS.textBrown;
       label.isBold = true;
     }

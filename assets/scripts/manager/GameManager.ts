@@ -6,13 +6,16 @@ import {
   createBoard,
   dragMerge,
   activateMother,
+  placeNewMothers,
   seedInitialBoard,
 } from '../core/board';
-import { createEnergy, tickEnergy } from '../core/energy';
-import { createEconomy } from '../core/economy';
+import { playSfx } from './AudioManager';
+import { createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
+import { addCoins, createEconomy } from '../core/economy';
 import { createCollection } from '../core/collection';
-import { createLevelState } from '../core/level';
-import { createOrderState, isValidOrderState, type OrderState } from '../core/order';
+import { addExp, createLevelState } from '../core/level';
+import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
+import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
 import { wechatPlatform, wechatInit } from '../platform/wechat';
 import { initOfflineQueue } from '../platform/offline-queue';
@@ -177,6 +180,7 @@ export class GameManager extends Component {
     const save = this.platform.load();
     if (!save) {
       seedInitialBoard(this.board, 1);
+      this.autoMatchOrders();
       this.events.emit('board:reset', this.board);
       return;
     }
@@ -192,6 +196,7 @@ export class GameManager extends Component {
       };
     }
     if (isValidOrderState(save.orders)) this.order = save.orders;
+    this.autoMatchOrders();
     this.events.emit('save:loaded', save);
   }
 
@@ -212,25 +217,103 @@ export class GameManager extends Component {
   // --- 游戏动作（薄包装，只负责事件广播 + 自动存档） ---
 
   activateMotherAt(idx: number): boolean {
-    const before = this.energy.current;
-    activateMother(this.board, idx, this.energy, false);
-    const triggered = this.energy.current !== before;
-    if (triggered) {
-      this.events.emit('board:changed', this.board);
-      this.events.emit('energy:changed', this.energy);
-      this.scheduleSave();
-    }
-    return triggered;
+    const spawnIdx = activateMother(this.board, idx, this.energy, false);
+    if (spawnIdx < 0) return false;
+    this.events.emit('board:changed', this.board);
+    this.events.emit('energy:changed', this.energy);
+    this.events.emit('fx:spawn', spawnIdx);
+    this.autoMatchOrders();
+    this.scheduleSave();
+    return true;
   }
 
   dragMergeAt(from: number, to: number): boolean {
-    const ok = dragMerge(this.board, from, to);
-    if (ok) {
-      this.events.emit('board:changed', this.board);
-      this.scheduleSave();
+    const merged = dragMerge(this.board, from, to);
+    // dragMerge 未合成时会交换两格，同样属于棋盘变化，需要广播 + 存档
+    this.events.emit('board:changed', this.board);
+    this.scheduleSave();
+    if (merged) {
+      this.events.emit('fx:merge', to);
+      playSfx('merge');
     }
-    return ok;
+    this.autoMatchOrders();
+    return merged;
   }
+
+  // --- 订单交付（对齐 Web useGame：自动匹配 + 手动领取） ---
+
+  /** 棋盘物品与订单需求自动匹配；一个物品只服务一个需求 */
+  autoMatchOrders(): void {
+    const reserved = new Set<number>();
+    const boardIndex = new Map<string, number[]>();
+    for (let i = 0; i < this.board.length; i++) {
+      const id = this.board[i].itemId;
+      if (!id) continue;
+      const arr = boardIndex.get(id);
+      if (arr) arr.push(i);
+      else boardIndex.set(id, [i]);
+    }
+
+    for (const order of this.order.activeOrders) {
+      for (const req of order.requirements) {
+        if (req.fulfilled) {
+          if (req.matchedBoardIdx != null && this.board[req.matchedBoardIdx]?.itemId === req.itemId) {
+            reserved.add(req.matchedBoardIdx);
+            continue;
+          }
+          req.fulfilled = false;
+          req.matchedBoardIdx = undefined;
+        }
+        const candidates = boardIndex.get(req.itemId);
+        const boardIdx = candidates?.find(i => !reserved.has(i));
+        if (boardIdx == null) {
+          req.matchedBoardIdx = undefined;
+          continue;
+        }
+        req.matchedBoardIdx = boardIdx;
+        req.fulfilled = true;
+        reserved.add(boardIdx);
+      }
+    }
+    this.events.emit('orders:changed', this.order);
+  }
+
+  /** 领取已完成订单：消耗棋盘匹配物品 → 发奖励（金币/精力/经验）→ 补新订单 */
+  collectOrder(orderId: string): boolean {
+    const order = this.order.activeOrders.find(o => o.id === orderId);
+    if (!order || !isOrderComplete(order)) return false;
+
+    for (const req of order.requirements) {
+      if (req.matchedBoardIdx != null && this.board[req.matchedBoardIdx]?.itemId === req.itemId) {
+        this.board[req.matchedBoardIdx] = {};
+      }
+      req.matchedBoardIdx = undefined;
+    }
+
+    const difficulty = order.difficulty;
+    const reward = completeOrder(this.order, orderId, getConfig().order.maxActive, this.level.level);
+    if (!reward) return false;
+
+    addCoins(this.economy, Math.max(0, Math.min(Math.floor(reward.coins ?? 0), 10000)));
+    if (reward.energy) rewardEnergy(this.energy, reward.energy);
+
+    // 订单经验：按难度（对齐 Web ORDER_EXP）
+    const ORDER_EXP: Record<string, number> = { easy: 5, normal: 10, hard: 20, rare: 30 };
+    const levelUp = addExp(this.level, ORDER_EXP[difficulty] ?? 10);
+    if (levelUp?.leveledUp) {
+      placeNewMothers(this.board, this.level.level);
+      this.events.emit('level:changed', this.level);
+    }
+
+    playSfx('order_complete');
+    this.events.emit('board:changed', this.board);
+    this.events.emit('economy:changed', this.economy);
+    this.events.emit('energy:changed', this.energy);
+    this.autoMatchOrders();
+    this.scheduleSave();
+    return true;
+  }
+
 }
 
 // `deserialize` 仅供后续 cloud-load 流程引用，主流程由 platform.load() 内部调用。

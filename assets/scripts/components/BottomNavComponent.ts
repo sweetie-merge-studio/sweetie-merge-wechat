@@ -1,5 +1,7 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
+import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
+import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
 
 const { ccclass } = _decorator;
@@ -13,17 +15,18 @@ const TAB_ACTIVE_BG = new Color(255, 232, 192, 255);
 /** 未开放文字 #A0784C */
 const TAB_DIM_TEXT = new Color(160, 120, 76, 255);
 
-const TABS: ReadonlyArray<{ key: string; label: string }> = [
+/** page: 点击时打开的分包页面（对齐 Web 版 onNavigate：商店 tab 进盲盒视图） */
+const TABS: ReadonlyArray<{ key: string; label: string; page?: { bundle: string; component: string } }> = [
   { key: 'daily', label: '每日' },
-  { key: 'collection', label: '图鉴' },
+  { key: 'collection', label: '图鉴', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
   { key: 'home', label: '首页' },
   { key: 'backpack', label: '背包' },
-  { key: 'shop', label: '商店' },
+  { key: 'shop', label: '商店', page: { bundle: 'blindbox', component: 'BlindboxPageComponent' } },
 ];
 
 /**
  * 底部导航（对齐 Web 版 BottomNav.vue 的五格结构）。
- * 目前仅「首页」有对应场景，其余入口为占位——玩法分包接入后再挂跳转。
+ * 图鉴/商店已接分包页面；每日/背包玩法未就绪，点击提示敬请期待。
  */
 @ccclass('BottomNavComponent')
 export class BottomNavComponent extends Component {
@@ -74,7 +77,19 @@ export class BottomNavComponent extends Component {
       label.fontSize = active ? 24 : 22;
       label.lineHeight = 28;
       label.isBold = active;
-      label.color = active ? UI_COLORS.textBrown : TAB_DIM_TEXT;
+      label.color = active || tab.page ? UI_COLORS.textBrown : TAB_DIM_TEXT;
+
+      // 点击走全局输入版点击区（节点触摸事件在本项目收不到，见 tap-zone.ts）
+      const page = tab.page;
+      if (tab.key !== 'home') {
+        const zone = tabNode.addComponent(TapZoneComponent);
+        zone.onTap = () => {
+          const canvas = this.node.parent;
+          if (!canvas || hasOpenBundlePage(canvas)) return;
+          if (page) openBundlePage(canvas, page.bundle, page.component);
+          else showPageToast(canvas, `「${tab.label}」玩法开发中，敬请期待`);
+        };
+      }
     }
   }
 }

@@ -12,6 +12,7 @@ import {
   Widget,
 } from 'cc';
 
+import { TapZoneComponent } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 
 /**
@@ -31,6 +32,15 @@ const PAGE_BG = new Color(242, 233, 202, 255);
 
 function pageNodeName(bundleName: string): string {
   return `BundlePage_${bundleName}`;
+}
+
+/**
+ * 是否有分包页面正开着。
+ * 主界面的全局输入监听（棋盘/订单/导航等）不吃 BlockInputEvents，
+ * 需要各自用这个判断挡掉页面下层的误触。
+ */
+export function hasOpenBundlePage(host: Node): boolean {
+  return host.children.some(c => c.isValid && c.name.startsWith('BundlePage_'));
 }
 
 /**
@@ -136,10 +146,11 @@ export function createPageChrome(root: Node, title: string, onBack?: () => void)
   backWidget.left = 24;
   backWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
-  back.on(Node.EventType.TOUCH_END, () => {
+  const backZone = back.addComponent(TapZoneComponent);
+  backZone.onTap = () => {
     if (onBack) onBack();
     else closeBundlePage(root);
-  });
+  };
 }
 
 /** 页面内轻提示：顶部浮现文字，1.6s 后自动消失 */

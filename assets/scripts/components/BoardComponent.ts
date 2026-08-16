@@ -1,9 +1,10 @@
-import { _decorator, Component, EventTouch, Graphics, Input, Node, Prefab, input, instantiate, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Input, Node, Prefab, Tween, input, instantiate, tween, UITransform, Vec3, view } from 'cc';
 
 import type { Cell } from '../core/types';
 import { BOARD_COLS, BOARD_ROWS, BOARD_LENGTH } from '../core/board';
 import { isMother } from '../data/items';
 import { GameManager } from '../manager/GameManager';
+import { hasOpenBundlePage } from './bundle-pages';
 import { ItemComponent } from './ItemComponent';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
 
@@ -21,6 +22,11 @@ const BOARD_TOP_OFFSET = 630;
 const NAV_RESERVE = 170;
 /** Item.prefab 原始尺寸 */
 const ITEM_BASE_SIZE = 88;
+/** 格子描边（深棕低透明度，给平铺色块一点层次） */
+const CELL_STROKE = new Color(139, 94, 60, 45);
+/** 拖拽目标格高亮：橙描边 + 淡橙填充 */
+const HIGHLIGHT_STROKE = new Color(240, 166, 74, 255);
+const HIGHLIGHT_FILL = new Color(255, 232, 192, 90);
 
 /**
  * 棋盘渲染组件。
@@ -40,12 +46,20 @@ export class BoardComponent extends Component {
   private _dragFromIdx = -1;
   private _dragItemNode: Node | null = null;
 
+  /** 拖拽目标格高亮节点（常驻，随手指移动显隐） */
+  private _highlightNode: Node | null = null;
+
   /** 格子高度随可视高度自适应（onLoad 时计算） */
   private _cellH = 68;
   private _itemScale = (68 - 8) / ITEM_BASE_SIZE;
 
   protected onLoad(): void {
-    const canvasH = this.node.parent?.getComponent(UITransform)?.height ?? 1280;
+    // 用可视高度（设计单位）而非 Canvas 节点高度：onLoad 早于 Widget 对齐，
+    // 高屏机型 Canvas 此刻还停在 1280，直接读会把撑开的高度浪费掉
+    const visibleH = view.getVisibleSize().height;
+    const canvasH = visibleH > 0
+      ? visibleH
+      : this.node.parent?.getComponent(UITransform)?.height ?? 1280;
     const available = canvasH - BOARD_TOP_OFFSET - NAV_RESERVE;
     const raw = (available - TRAY_PADDING * 2 - (BOARD_ROWS - 1) * CELL_GAP) / BOARD_ROWS;
     this._cellH = Math.max(56, Math.min(96, Math.floor(raw)));
@@ -104,6 +118,9 @@ export class BoardComponent extends Component {
   }
 
   private _onTouchStart(event: EventTouch): void {
+    // 分包页面开着时不吃触摸（全局输入不受页面 BlockInputEvents 拦截）
+    const canvas = this.node.parent;
+    if (canvas && hasOpenBundlePage(canvas)) return;
     const local = this._touchToLocal(event);
     const idx = this._cellIndexAt(local);
     console.info(`[board] touch (${local.x.toFixed(0)}, ${local.y.toFixed(0)}) -> cell ${idx}`);
@@ -113,6 +130,8 @@ export class BoardComponent extends Component {
     this._dragFromIdx = idx;
     this._dragItemNode = this._cellNodes[idx]?.children[0] ?? null;
     this._dragItemNode?.setScale(this._itemScale * 1.15, this._itemScale * 1.15, 1);
+    // 拖起的物品提到最上层，避免被相邻格子的物品盖住
+    this._cellNodes[idx].setSiblingIndex(this.node.children.length - 1);
   }
 
   private _onTouchMove(event: EventTouch): void {
@@ -120,12 +139,14 @@ export class BoardComponent extends Component {
     const local = this._touchToLocal(event);
     const cellPos = this._cellNodes[this._dragFromIdx].getPosition();
     this._dragItemNode.setPosition(local.x - cellPos.x, local.y - cellPos.y, 0);
+    this._updateHighlight(this._cellIndexAt(local));
   }
 
   private _onTouchEnd(event: EventTouch): void {
     const fromIdx = this._dragFromIdx;
     this._dragFromIdx = -1;
     this._dragItemNode = null;
+    if (this._highlightNode) this._highlightNode.active = false;
     if (fromIdx < 0) return;
 
     const gm = GameManager.instance;
@@ -168,14 +189,52 @@ export class BoardComponent extends Component {
       this.node.addChild(cell);
       this._cellNodes.push(cell);
     }
+
+    this._buildHighlight();
   }
 
-  /** 奶油白 / 浅褐棋盘格交错底色（对齐 Web 版 .cell / .cell.alt） */
+  /** 奶油白 / 浅褐棋盘格交错底色（对齐 Web 版 .cell / .cell.alt），细描边加一点层次 */
   private _drawCellBackground(cell: Node, alt: boolean): void {
     const g = cell.addComponent(Graphics);
     g.fillColor = alt ? UI_COLORS.cellAlt : UI_COLORS.cellLight;
     g.roundRect(-CELL_W / 2, -this._cellH / 2, CELL_W, this._cellH, CELL_RADIUS);
     g.fill();
+    g.lineWidth = 2;
+    g.strokeColor = CELL_STROKE;
+    g.roundRect(-CELL_W / 2, -this._cellH / 2, CELL_W, this._cellH, CELL_RADIUS);
+    g.stroke();
+  }
+
+  /** 常驻的拖拽目标格高亮节点（渲染在所有格子之上） */
+  private _buildHighlight(): void {
+    const node = new Node('dragHighlight');
+    node.layer = this.node.layer;
+    node.addComponent(UITransform).setContentSize(CELL_W, this._cellH);
+    this.node.addChild(node);
+
+    const g = node.addComponent(Graphics);
+    g.fillColor = HIGHLIGHT_FILL;
+    g.roundRect(-CELL_W / 2, -this._cellH / 2, CELL_W, this._cellH, CELL_RADIUS);
+    g.fill();
+    g.lineWidth = 4;
+    g.strokeColor = HIGHLIGHT_STROKE;
+    g.roundRect(-CELL_W / 2, -this._cellH / 2, CELL_W, this._cellH, CELL_RADIUS);
+    g.stroke();
+
+    node.active = false;
+    this._highlightNode = node;
+  }
+
+  /** 拖拽中把高亮框对到目标格；不在拖拽或目标无效时隐藏 */
+  private _updateHighlight(targetIdx: number): void {
+    const node = this._highlightNode;
+    if (!node) return;
+    if (targetIdx < 0 || targetIdx === this._dragFromIdx) {
+      node.active = false;
+      return;
+    }
+    node.setPosition(this._cellNodes[targetIdx].getPosition());
+    node.active = true;
   }
 
   private _onBoardChanged = (): void => {
