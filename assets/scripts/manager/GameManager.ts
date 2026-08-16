@@ -19,6 +19,7 @@ import {
   seedInitialBoard,
 } from '../core/board';
 import { initAudio, playBgm, playSfx } from './AudioManager';
+import { applyEnv } from '../env';
 import { createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
 import { addCoins, addDiamonds, createEconomy, spendCoins, spendDiamonds } from '../core/economy';
 import { claimCollectionReward, createCollection, unlockItem } from '../core/collection';
@@ -101,6 +102,9 @@ export class GameManager extends Component {
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH);
     // 关闭 debug 构建自带的 FPS/DrawCall 浮层，避免遮挡 UI
     profiler.hideStats();
+    // 环境注入必须在 wechatInit / 登录 / 广告之前：小游戏没有 origin，
+    // request 的默认相对地址 '/api' 发不出去（见 env.ts）
+    applyEnv();
     wechatInit();
     initAudio(this.node);
     playBgm();
