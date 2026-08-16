@@ -1,35 +1,82 @@
-import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, Color, Component, Label, Node, UITransform, Vec3, view } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
-import { createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
-import { loadSpriteFrame, applySpriteFrame } from '../../scripts/components/sprite-loader';
+import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import {
+  CARD_BORDER,
+  LOCKED_BG,
+  LOCKED_BORDER,
+  LOCK_SPRITE,
+  MOTHER_BG,
+  TEXT_MUTED,
+  UNCLAIMED_STROKE,
+  addLabel,
+  addSprite,
+  buildItemCell,
+  paintRoundRect,
+} from '../../scripts/components/collection-cells';
+import { buildTabBar, type CollectionTab } from '../../scripts/components/collection-tabs';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
-import { CATEGORIES, RARE_ITEMS, getItemSpritePath } from '../../scripts/data/items';
-import { completionRate } from '../../scripts/core/collection';
-import { getShardCount, getShardsRequired } from '../../scripts/core/shard';
+import { CATEGORIES, RARE_ITEM_BY_CATEGORY, getItemSpritePath } from '../../scripts/data/items';
+import { getShardCount, getShardsRequired, isRareCompleted } from '../../scripts/core/shard';
 
 const { ccclass } = _decorator;
 
-const CELL = 70;
-const GAP = 8;
-const COLS = 8;
-const GRID_W = COLS * CELL + (COLS - 1) * GAP;
+/** 内容区宽度（720 设计宽 - 左右各 24 边距） */
+const CONTENT_W = 672;
 
-/** 锁定格底色（深棕半透明） */
-const LOCKED_BG = new Color(96, 66, 46, 90);
-/** 未领取高亮描边（Web 版金黄） */
-const UNCLAIMED_STROKE = new Color(255, 196, 60, 255);
+/** 品类卡：4 列网格（Web .cat-grid grid-template-columns: repeat(4, 1fr)） */
+const GRID_COLS = 4;
+const CARD_PAD = 16;
+const CELL_GAP = 10;
+const CELL_W = (CONTENT_W - CARD_PAD * 2 - CELL_GAP * (GRID_COLS - 1)) / GRID_COLS;
+const CELL_H = 110;
+const MOTHER_H = 64;
+/** 品类卡总高：两行子棋 + 母棋条 */
+const CATEGORY_CARD_H = CARD_PAD * 2 + CELL_H * 2 + CELL_GAP + MOTHER_H + 8;
+
+/** 稀有卡：2 列（Web .rare-grid repeat(2, 1fr)） */
+const RARE_COLS = 2;
+const RARE_GAP = 16;
+const RARE_W = (CONTENT_W - RARE_GAP) / RARE_COLS;
+const RARE_H = 250;
+
+/** 经济卡：合成链一行 4 级 */
+const CHAIN_CARD_H = 190;
+
+/** 一屏内容的可视高度上限，超出部分靠翻页 */
+const VIEW_TOP = 380;
+/** 底部翻页条占用的高度（按钮 64 + 上下留白） */
+const PAGER_H = 84;
+/** 底部安全边距（避开 home indicator）。留太多会白白挤掉一整张品类卡 */
+const BOTTOM_SAFE = 60;
+
+const CURRENCY_GROUPS: readonly { prefix: string; name: string; icon: string }[] = [
+  { prefix: 'coin', name: '金币', icon: 'sprites/currency/coin_single' },
+  { prefix: 'diamond', name: '钻石', icon: 'sprites/currency/diamond' },
+  { prefix: 'energy', name: '精力', icon: 'sprites/ui/energy_bolt' },
+];
+/** 货币合成链长度（coin_1..coin_4） */
+const CHAIN_LEN = 4;
 
 /**
- * 图鉴页（collection 分包）：8 品类 × 8 级 + 稀有物品行。
- * 已解锁显示贴图，未领取的格子高亮、点击领取 +1 钻石；
- * 稀有行未解锁时显示碎片进度。
+ * 图鉴页（collection 分包）。
+ *
+ * 布局对齐 Web 版 Collection.vue：顶部三段 Tab（物品 / 稀有 / 经济），
+ * - 物品：每个品类一张卡，内含 4×2 子棋网格 + 底部母棋条；
+ * - 稀有：2 列展示卡，碎片点阵 + 进度数字；
+ * - 经济：金币 / 钻石 / 精力三条合成链，箭头连接。
+ *
+ * 小游戏侧没有 DOM 滚动，内容超出一屏时用上下翻页按钮分页。
  */
 @ccclass('CollectionPageComponent')
 export class CollectionPageComponent extends Component {
   private _content: Node | null = null;
+  private _tabRow: Node | null = null;
   private _headerLabel: Label | null = null;
+  private _activeTab: CollectionTab = 'items';
+  private _page = 0;
   private readonly _onChanged = (): void => this._render();
 
   protected onLoad(): void {
@@ -44,22 +91,25 @@ export class CollectionPageComponent extends Component {
     header.addComponent(UITransform);
     this.node.addChild(header);
     this._headerLabel = header.addComponent(Label);
-    this._headerLabel.fontSize = 26;
-    this._headerLabel.lineHeight = 32;
-    this._headerLabel.color = UI_COLORS.textBrown;
-    const hw = header.addComponent(Widget);
-    hw.isAlignTop = true;
-    hw.top = 246;
-    hw.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    this._headerLabel.fontSize = 24;
+    this._headerLabel.lineHeight = 30;
+    this._headerLabel.color = TEXT_MUTED;
+    addAlignedWidget(header, { isAlignTop: true, top: 250 });
 
-    const content = new Node('grid');
+    const tabRow = new Node('tabRow');
+    tabRow.layer = this.node.layer;
+    tabRow.addComponent(UITransform).setContentSize(CONTENT_W, 68);
+    this.node.addChild(tabRow);
+    addAlignedWidget(tabRow, { isAlignTop: true, top: 292 });
+    this._tabRow = tabRow;
+
+    // 高度必须恒为 0：Widget 按节点中心做 top 对齐，节点一变高中心就下沉，
+    // 子节点会被整体推走。这里当成一个「顶部锚点」，卡片全部按负 y 往下排。
+    const content = new Node('content');
     content.layer = this.node.layer;
-    content.addComponent(UITransform).setContentSize(GRID_W, 9 * (CELL + GAP));
+    content.addComponent(UITransform).setContentSize(CONTENT_W, 0);
     this.node.addChild(content);
-    const cw = content.addComponent(Widget);
-    cw.isAlignTop = true;
-    cw.top = 300;
-    cw.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    addAlignedWidget(content, { isAlignTop: true, top: VIEW_TOP });
     this._content = content;
 
     this._render();
@@ -72,131 +122,411 @@ export class CollectionPageComponent extends Component {
     gm.events.off('shard:changed', this._onChanged);
   }
 
+  private _switchTab(tab: CollectionTab): void {
+    this._activeTab = tab;
+    this._page = 0;
+    this._render();
+  }
+
   private _render(): void {
     const content = this._content;
-    if (!content || !content.isValid) return;
+    const tabRow = this._tabRow;
+    if (!content?.isValid || !tabRow?.isValid) return;
+
     content.removeAllChildren();
+    tabRow.removeAllChildren();
+    buildTabBar(tabRow, CONTENT_W, this._activeTab, t => this._switchTab(t));
 
     const gm = GameManager.instance;
-    if (this._headerLabel && this._headerLabel.isValid) {
-      this._headerLabel.string = `收集进度 ${completionRate(gm.collection)}%`;
+    if (this._headerLabel?.isValid) {
+      const total = gm.collection.unlockedIds.size;
+      this._headerLabel.string = `已收集 ${total} 件`;
     }
 
-    const gridH = content.getComponent(UITransform)?.height ?? 0;
-    const startX = -GRID_W / 2 + CELL / 2;
-    const startY = gridH / 2 - CELL / 2;
+    const cards =
+      this._activeTab === 'items'
+        ? this._buildItemsTab()
+        : this._activeTab === 'rare'
+          ? this._buildRareTab()
+          : this._buildCurrencyTab();
 
-    // 8 个品类行：itemId = `${category}_${level}`
-    CATEGORIES.forEach((cat, row) => {
-      for (let col = 0; col < COLS; col++) {
-        const itemId = `${cat.id}_${col + 1}`;
-        const pos = new Vec3(startX + col * (CELL + GAP), startY - row * (CELL + GAP), 0);
-        this._buildCell(content, pos, {
-          itemId,
-          name: cat.items[col]?.name ?? itemId,
-          unlocked: gm.collection.unlockedIds.has(itemId),
-          unclaimed: gm.collection.unclaimedIds.has(itemId),
-        });
-      }
-    });
-
-    // 稀有物品行：未解锁时显示碎片进度
-    RARE_ITEMS.forEach((rare, col) => {
-      const pos = new Vec3(startX + col * (CELL + GAP), startY - 8 * (CELL + GAP), 0);
-      const unlocked = gm.collection.unlockedIds.has(rare.id);
-      this._buildCell(content, pos, {
-        itemId: rare.id,
-        name: rare.name,
-        unlocked,
-        unclaimed: gm.collection.unclaimedIds.has(rare.id),
-        progress: unlocked
-          ? undefined
-          : `${getShardCount(gm.shard, rare.category)}/${getShardsRequired(rare.category)}`,
-      });
-    });
+    this._layoutPaged(content, cards);
   }
 
-  private _buildCell(
-    parent: Node,
-    pos: Vec3,
-    info: { itemId: string; name: string; unlocked: boolean; unclaimed: boolean; progress?: string },
-  ): void {
-    const cell = new Node(`cell_${info.itemId}`);
-    cell.layer = parent.layer;
-    cell.addComponent(UITransform).setContentSize(CELL, CELL);
-    cell.setPosition(pos);
-    parent.addChild(cell);
+  /**
+   * 把卡片按分页塞进内容区。
+   * 每页装满为止，底部留出翻页按钮的位置。
+   */
+  private _layoutPaged(content: Node, cards: { h: number; build: (parent: Node, y: number) => void }[]): void {
+    const pages = this._paginate(cards);
 
-    const g = cell.addComponent(Graphics);
-    g.fillColor = info.unlocked ? UI_COLORS.cellLight : LOCKED_BG;
-    g.roundRect(-CELL / 2, -CELL / 2, CELL, CELL, 12);
-    g.fill();
-    if (info.unclaimed) {
-      g.lineWidth = 4;
-      g.strokeColor = UNCLAIMED_STROKE;
-      g.roundRect(-CELL / 2, -CELL / 2, CELL, CELL, 12);
-      g.stroke();
+    if (pages.length === 0) return;
+    this._page = Math.max(0, Math.min(this._page, pages.length - 1));
+
+    let y = 0;
+    for (const card of pages[this._page]) {
+      y -= card.h / 2;
+      card.build(content, y);
+      y -= card.h / 2 + CELL_GAP;
     }
 
-    if (info.unlocked) {
-      this._mountItemVisual(cell, info.itemId, info.name);
-      if (info.unclaimed) {
-        cell.addComponent(TapZoneComponent).onTap = () => {
-          if (GameManager.instance.claimCollectionDiamond(info.itemId)) {
-            showPageToast(this.node, `${info.name} 奖励 +1 钻石`);
-          }
-        };
-      }
-      return;
-    }
-
-    // 未解锁：稀有格显示碎片进度，普通格显示 ?
-    const labelNode = new Node('locked');
-    labelNode.layer = cell.layer;
-    labelNode.addComponent(UITransform);
-    cell.addChild(labelNode);
-    const label = labelNode.addComponent(Label);
-    label.string = info.progress ?? '?';
-    label.fontSize = info.progress ? 20 : 30;
-    label.lineHeight = 34;
-    label.isBold = true;
-    label.color = new Color(255, 248, 238, 160);
+    if (pages.length > 1) this._buildPager(content, y - 20, pages.length);
   }
 
-  /** 物品贴图，缺图时回退为名称文字 */
-  private _mountItemVisual(cell: Node, itemId: string, name: string): void {
-    const path = getItemSpritePath(itemId);
-    const spriteNode = new Node('icon');
-    spriteNode.layer = cell.layer;
-    spriteNode.addComponent(UITransform).setContentSize(CELL - 14, CELL - 14);
-    cell.addChild(spriteNode);
-    const sprite = spriteNode.addComponent(Sprite);
+  /**
+   * 内容区可用高度：可视高度减去顶部 chrome 与底部安全边距。
+   *
+   * 必须读 view.getVisibleSize()——项目跑 FIXED_WIDTH，真机可视高度（如 1559）
+   * 远大于设计高度 1280，用设计高度算会少排一整张卡。
+   */
+  private _availableHeight(): number {
+    return view.getVisibleSize().height - VIEW_TOP - BOTTOM_SAFE;
+  }
 
-    const fallback = (): void => {
-      if (!spriteNode.isValid || !cell.isValid) return;
-      spriteNode.destroy();
-      const labelNode = new Node('name');
-      labelNode.layer = cell.layer;
-      const ui = labelNode.addComponent(UITransform);
-      ui.setContentSize(CELL - 8, CELL - 8);
-      cell.addChild(labelNode);
-      const label = labelNode.addComponent(Label);
-      label.string = name;
-      label.fontSize = 16;
-      label.lineHeight = 18;
-      label.overflow = Label.Overflow.SHRINK;
-      label.enableWrapText = true;
-      label.color = UI_COLORS.textBrown;
+  /**
+   * 按可用高度切页。
+   *
+   * 先按整屏切一次，只要切出多于一页，就说明底部要放翻页条——此时可用高度
+   * 要扣掉 PAGER_H 再重切，否则每页最后一张卡会压在翻页按钮上。
+   */
+  private _paginate(
+    cards: { h: number; build: (parent: Node, y: number) => void }[],
+  ): { h: number; build: (parent: Node, y: number) => void }[][] {
+    const split = (viewH: number): typeof cards[] => {
+      const pages: typeof cards[] = [];
+      let cur: typeof cards = [];
+      let curH = 0;
+      for (const card of cards) {
+        if (curH + card.h > viewH && cur.length > 0) {
+          pages.push(cur);
+          cur = [];
+          curH = 0;
+        }
+        cur.push(card);
+        curH += card.h + CELL_GAP;
+      }
+      if (cur.length > 0) pages.push(cur);
+      return pages;
     };
 
-    if (!path) {
-      fallback();
+    const full = split(this._availableHeight());
+    return full.length > 1 ? split(this._availableHeight() - PAGER_H) : full;
+  }
+
+  private _buildPager(parent: Node, y: number, pageCount: number): void {
+    const row = new Node('pager');
+    row.layer = parent.layer;
+    row.addComponent(UITransform).setContentSize(CONTENT_W, 64);
+    row.setPosition(new Vec3(0, y, 0));
+    parent.addChild(row);
+
+    const mkBtn = (label: string, x: number, enabled: boolean, delta: number): void => {
+      const btn = new Node(`page_${label}`);
+      btn.layer = row.layer;
+      btn.addComponent(UITransform).setContentSize(96, 56);
+      btn.setPosition(new Vec3(x, 0, 0));
+      row.addChild(btn);
+      paintRoundRect(
+        btn,
+        96,
+        56,
+        16,
+        enabled ? UI_COLORS.pillBg : LOCKED_BG,
+        enabled ? UI_COLORS.pillBorder : LOCKED_BORDER,
+      );
+      addLabel(btn, label, {
+        size: 26,
+        color: enabled ? UI_COLORS.textBrown : TEXT_MUTED,
+        bold: true,
+      });
+      if (!enabled) return;
+      const zone = btn.addComponent(TapZoneComponent);
+      zone.onTap = () => {
+        this._page += delta;
+        this._render();
+      };
+    };
+
+    mkBtn('∧', -110, this._page > 0, -1);
+    addLabel(row, `${this._page + 1}/${pageCount}`, { size: 24, color: TEXT_MUTED, bold: true });
+    mkBtn('∨', 110, this._page < pageCount - 1, 1);
+  }
+
+  /* ─── 物品 Tab：品类卡 + 母棋条 ─── */
+
+  private _buildItemsTab(): { h: number; build: (parent: Node, y: number) => void }[] {
+    const gm = GameManager.instance;
+    return CATEGORIES.map(cat => ({
+      h: CATEGORY_CARD_H,
+      build: (parent: Node, y: number): void => {
+        const card = new Node(`cat_${cat.id}`);
+        card.layer = parent.layer;
+        card.addComponent(UITransform).setContentSize(CONTENT_W, CATEGORY_CARD_H);
+        card.setPosition(new Vec3(0, y, 0));
+        parent.addChild(card);
+        paintRoundRect(card, CONTENT_W, CATEGORY_CARD_H, 20, new Color(255, 255, 255, 100), CARD_BORDER, 2);
+
+        // 4×2 子棋网格
+        const startX = -CONTENT_W / 2 + CARD_PAD + CELL_W / 2;
+        const startY = CATEGORY_CARD_H / 2 - CARD_PAD - CELL_H / 2;
+        for (let i = 0; i < GRID_COLS * 2; i++) {
+          const itemId = `${cat.id}_${i + 1}`;
+          const col = i % GRID_COLS;
+          const row = Math.floor(i / GRID_COLS);
+          const unclaimed = gm.collection.unclaimedIds.has(itemId);
+          buildItemCell(
+            card,
+            new Vec3(startX + col * (CELL_W + CELL_GAP), startY - row * (CELL_H + CELL_GAP), 0),
+            { w: CELL_W, h: CELL_H },
+            {
+              itemId,
+              name: cat.items[i]?.name ?? itemId,
+              unlocked: gm.collection.unlockedIds.has(itemId),
+              unclaimed,
+            },
+            {
+              onClaim: () => {
+                if (GameManager.instance.claimCollectionDiamond(itemId)) {
+                  showPageToast(this.node, `${cat.items[i]?.name ?? itemId} 奖励 +1 钻石`);
+                }
+              },
+            },
+          );
+        }
+
+        this._buildMotherStrip(card, cat.id, cat.name, gm.unlockedCategories.has(cat.id));
+      },
+    }));
+  }
+
+  /** 母棋条（Web .mother-strip）：卡片底部整条，左图右文 */
+  private _buildMotherStrip(card: Node, catId: string, catName: string, unlocked: boolean): void {
+    const strip = new Node('mother');
+    strip.layer = card.layer;
+    const w = CONTENT_W - CARD_PAD * 2;
+    strip.addComponent(UITransform).setContentSize(w, MOTHER_H);
+    strip.setPosition(new Vec3(0, -CATEGORY_CARD_H / 2 + CARD_PAD + MOTHER_H / 2 - 4, 0));
+    card.addChild(strip);
+    paintRoundRect(strip, w, MOTHER_H, 14, unlocked ? MOTHER_BG : LOCKED_BG, unlocked ? undefined : LOCKED_BORDER, 2);
+
+    const icon = unlocked ? getItemSpritePath(`mother_${catId}`) : LOCK_SPRITE;
+    if (icon) {
+      addSprite(strip, icon, 40).setPosition(new Vec3(-w / 2 + 36, 0, 0));
+    }
+    addLabel(strip, `${catName}工坊`, {
+      size: 24,
+      color: unlocked ? UI_COLORS.textBrown : TEXT_MUTED,
+      bold: true,
+      width: w - 100,
+      align: 'left',
+    }).node.setPosition(new Vec3(-w / 2 + 76 + (w - 100) / 2, 0, 0));
+  }
+
+  /* ─── 稀有 Tab：2 列展示卡 + 碎片点阵 ─── */
+
+  private _buildRareTab(): { h: number; build: (parent: Node, y: number) => void }[] {
+    const gm = GameManager.instance;
+    const rares = CATEGORIES.filter(c => RARE_ITEM_BY_CATEGORY.has(c.id));
+    const rows: { h: number; build: (parent: Node, y: number) => void }[] = [];
+
+    for (let i = 0; i < rares.length; i += RARE_COLS) {
+      const rowCats = rares.slice(i, i + RARE_COLS);
+      rows.push({
+        h: RARE_H,
+        build: (parent: Node, y: number): void => {
+          rowCats.forEach((cat, col) => {
+            const rare = RARE_ITEM_BY_CATEGORY.get(cat.id)!;
+            const x = -CONTENT_W / 2 + RARE_W / 2 + col * (RARE_W + RARE_GAP);
+            this._buildRareCard(parent, new Vec3(x, y, 0), {
+              id: rare.id,
+              name: rare.name,
+              categoryName: cat.name,
+              count: getShardCount(gm.shard, cat.id),
+              required: getShardsRequired(cat.id),
+              completed: isRareCompleted(gm.shard, cat.id),
+            });
+          });
+        },
+      });
+    }
+    return rows;
+  }
+
+  private _buildRareCard(
+    parent: Node,
+    pos: Vec3,
+    info: { id: string; name: string; categoryName: string; count: number; required: number; completed: boolean },
+  ): void {
+    const card = new Node(`rare_${info.id}`);
+    card.layer = parent.layer;
+    card.addComponent(UITransform).setContentSize(RARE_W, RARE_H);
+    card.setPosition(pos);
+    parent.addChild(card);
+
+    const started = info.count > 0;
+    paintRoundRect(
+      card,
+      RARE_W,
+      RARE_H,
+      22,
+      info.completed ? new Color(255, 250, 255, 220) : started ? new Color(255, 255, 255, 140) : LOCKED_BG,
+      info.completed ? new Color(200, 109, 215, 200) : started ? new Color(200, 160, 220, 110) : LOCKED_BORDER,
+      info.completed ? 4 : 2,
+    );
+
+    // 中心图标：完成后显示稀有物品贴图，未完成显示锁
+    const iconPath = info.completed ? getItemSpritePath(info.id) : LOCK_SPRITE;
+    if (iconPath) addSprite(card, iconPath, info.completed ? 88 : 44, RARE_H / 2 - 66);
+
+    addLabel(card, info.name, {
+      size: 22,
+      color: info.completed ? new Color(156, 39, 176, 255) : UI_COLORS.textBrown,
+      bold: true,
+      y: -6,
+      width: RARE_W - 20,
+    });
+    addLabel(card, info.categoryName, {
+      size: 18,
+      color: TEXT_MUTED,
+      y: -34,
+      width: RARE_W - 20,
+    });
+
+    if (info.completed) {
+      const badge = new Node('badge');
+      badge.layer = card.layer;
+      badge.addComponent(UITransform).setContentSize(120, 36);
+      badge.setPosition(new Vec3(0, -RARE_H / 2 + 34, 0));
+      card.addChild(badge);
+      paintRoundRect(badge, 120, 36, 12, new Color(200, 109, 215, 255));
+      addLabel(badge, '已收集', { size: 20, color: new Color(255, 255, 255, 255), bold: true });
       return;
     }
-    loadSpriteFrame(path, sf => {
-      if (!sprite.isValid) return;
-      if (sf) applySpriteFrame(sprite, sf);
-      else fallback();
+
+    this._buildShardDots(card, info.count, info.required);
+    addLabel(card, `${info.count}/${info.required}`, {
+      size: 20,
+      color: started ? UNCLAIMED_STROKE : TEXT_MUTED,
+      bold: true,
+      y: -RARE_H / 2 + 24,
     });
+  }
+
+  /** 碎片点阵（Web .shard-dots）：已得的点填金色 */
+  private _buildShardDots(card: Node, count: number, required: number): void {
+    const dot = 14;
+    const gap = 6;
+    const totalW = required * dot + (required - 1) * gap;
+    const startX = -totalW / 2 + dot / 2;
+    for (let i = 0; i < required; i++) {
+      const d = new Node(`dot_${i}`);
+      d.layer = card.layer;
+      d.addComponent(UITransform).setContentSize(dot, dot);
+      d.setPosition(new Vec3(startX + i * (dot + gap), -RARE_H / 2 + 54, 0));
+      card.addChild(d);
+      paintRoundRect(
+        d,
+        dot,
+        dot,
+        dot / 2,
+        i < count ? UNCLAIMED_STROKE : new Color(216, 200, 216, 80),
+        undefined,
+      );
+    }
+  }
+
+  /* ─── 经济 Tab：合成链 ─── */
+
+  private _buildCurrencyTab(): { h: number; build: (parent: Node, y: number) => void }[] {
+    const gm = GameManager.instance;
+    return CURRENCY_GROUPS.map(cg => {
+      const unlockedCount = Array.from({ length: CHAIN_LEN }).filter((_, i) =>
+        gm.collection.unlockedIds.has(`${cg.prefix}_${i + 1}`),
+      ).length;
+      return {
+        h: CHAIN_CARD_H,
+        build: (parent: Node, y: number): void => {
+          const card = new Node(`chain_${cg.prefix}`);
+          card.layer = parent.layer;
+          card.addComponent(UITransform).setContentSize(CONTENT_W, CHAIN_CARD_H);
+          card.setPosition(new Vec3(0, y, 0));
+          parent.addChild(card);
+          paintRoundRect(card, CONTENT_W, CHAIN_CARD_H, 20, new Color(255, 255, 255, 120), CARD_BORDER, 2);
+
+          // 头部：图标 + 名称 + 进度
+          const headY = CHAIN_CARD_H / 2 - 30;
+          addSprite(card, cg.icon, 32, headY).setPosition(
+            new Vec3(-CONTENT_W / 2 + 40, headY, 0),
+          );
+          addLabel(card, cg.name, {
+            size: 24,
+            color: UI_COLORS.textBrown,
+            bold: true,
+            y: headY,
+            width: 160,
+            align: 'left',
+            // 左对齐时 x 是节点中心，节点左缘 = x - width/2，要落在图标右侧
+          }).node.setPosition(new Vec3(-CONTENT_W / 2 + 70 + 160 / 2, headY, 0));
+          addLabel(card, `${unlockedCount}/${CHAIN_LEN}`, {
+            size: 20,
+            color: TEXT_MUTED,
+            bold: true,
+            y: headY,
+            width: 100,
+          }).node.setPosition(new Vec3(CONTENT_W / 2 - 60, headY, 0));
+
+          this._buildChainNodes(card, cg.prefix, cg.icon);
+        },
+      };
+    });
+  }
+
+  /** 合成链节点行：4 级方块 + 中间箭头 */
+  private _buildChainNodes(card: Node, prefix: string, icon: string): void {
+    const gm = GameManager.instance;
+    const nodeW = 96;
+    const span = (CONTENT_W - 80) / CHAIN_LEN;
+    const startX = -CONTENT_W / 2 + 40 + span / 2;
+    const rowY = -18;
+
+    for (let i = 0; i < CHAIN_LEN; i++) {
+      const itemId = `${prefix}_${i + 1}`;
+      const unlocked = gm.collection.unlockedIds.has(itemId);
+      const x = startX + i * span;
+
+      const box = new Node(`chain_${itemId}`);
+      box.layer = card.layer;
+      box.addComponent(UITransform).setContentSize(nodeW, nodeW);
+      box.setPosition(new Vec3(x, rowY, 0));
+      card.addChild(box);
+      paintRoundRect(
+        box,
+        nodeW,
+        nodeW,
+        16,
+        unlocked ? UI_COLORS.cellLight : LOCKED_BG,
+        unlocked ? CARD_BORDER : LOCKED_BORDER,
+        2,
+      );
+      addSprite(box, unlocked ? icon : LOCK_SPRITE, unlocked ? 52 : 30);
+      addLabel(box, `Lv.${i + 1}`, {
+        size: 18,
+        color: unlocked ? UNCLAIMED_STROKE : TEXT_MUTED,
+        bold: true,
+        y: -nodeW / 2 - 18,
+        width: nodeW,
+      });
+
+      // 箭头：画在两个方块之间的独立节点上
+      if (i < CHAIN_LEN - 1) {
+        addLabel(card, '›', {
+          size: 34,
+          color: TEXT_MUTED,
+          bold: true,
+          y: rowY,
+          width: 40,
+        }).node.setPosition(new Vec3(x + span / 2, rowY, 0));
+      }
+    }
   }
 }

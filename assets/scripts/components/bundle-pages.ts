@@ -35,6 +35,25 @@ function pageNodeName(bundleName: string): string {
 }
 
 /**
+ * 给节点加一个立即生效的 Widget。
+ *
+ * 必须用 ALWAYS 而不是 ON_WINDOW_RESIZE：项目跑 FIXED_WIDTH（见 GameManager
+ * setDesignResolutionSize），可视高度随机型大于设计高度 1280，而小游戏启动后
+ * 不会再触发 window resize，ON_WINDOW_RESIZE 的节点会停在按 1280 算出的位置。
+ *
+ * 页面里的按钮走 TapZoneComponent（全局 input + UITransform 自算命中），
+ * 渲染用的是 Widget 对齐后的变换、命中用的是 UITransform，两者一旦不同步，
+ * 按钮就会"看得见、点不到"。所以这里建完立刻 updateAlignment() 同步一次。
+ */
+export function addAlignedWidget(node: Node, align: Partial<Widget>): Widget {
+  const w = node.addComponent(Widget);
+  Object.assign(w, align);
+  w.alignMode = Widget.AlignMode.ALWAYS;
+  w.updateAlignment();
+  return w;
+}
+
+/**
  * 是否有分包页面正开着。
  * 主界面的全局输入监听（棋盘/订单/导航等）不吃 BlockInputEvents，
  * 需要各自用这个判断挡掉页面下层的误触。
@@ -70,10 +89,11 @@ export function openBundlePage(host: Node, bundleName: string, componentName: st
     page.addComponent(BlockInputEvents);
     host.addChild(page);
 
-    const w = page.addComponent(Widget);
-    w.isAlignTop = w.isAlignBottom = w.isAlignLeft = w.isAlignRight = true;
-    w.top = w.bottom = w.left = w.right = 0;
-    w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    // 先把页面撑到真实可视尺寸，再挂页面组件——组件 onLoad 会读父节点尺寸建 UI
+    addAlignedWidget(page, {
+      isAlignTop: true, isAlignBottom: true, isAlignLeft: true, isAlignRight: true,
+      top: 0, bottom: 0, left: 0, right: 0,
+    });
 
     page.addComponent(cls);
   });
@@ -110,10 +130,7 @@ export function createPageChrome(root: Node, title: string, onBack?: () => void)
   titleLabel.lineHeight = 52;
   titleLabel.isBold = true;
   titleLabel.color = UI_COLORS.textBrown;
-  const titleWidget = titleNode.addComponent(Widget);
-  titleWidget.isAlignTop = true;
-  titleWidget.top = 180;
-  titleWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+  addAlignedWidget(titleNode, { isAlignTop: true, top: 180 });
 
   // 返回按钮
   const back = new Node('backButton');
@@ -140,11 +157,7 @@ export function createPageChrome(root: Node, title: string, onBack?: () => void)
   backLabel.isBold = true;
   backLabel.color = UI_COLORS.textBrown;
 
-  const backWidget = back.addComponent(Widget);
-  backWidget.isAlignTop = backWidget.isAlignLeft = true;
-  backWidget.top = 172;
-  backWidget.left = 24;
-  backWidget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+  addAlignedWidget(back, { isAlignTop: true, isAlignLeft: true, top: 172, left: 24 });
 
   const backZone = back.addComponent(TapZoneComponent);
   backZone.onTap = () => {
