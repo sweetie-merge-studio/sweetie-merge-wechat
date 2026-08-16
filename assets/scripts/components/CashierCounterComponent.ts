@@ -18,6 +18,9 @@ const PANEL_BORDER = new Color(139, 94, 60, 255);
 const BAR_TRACK = new Color(228, 217, 200, 255);
 /** EXP 填充 #F0A64A */
 const BAR_FILL = new Color(240, 166, 74, 255);
+/** 「营业中」标底 #4CAF50 与状态圆点 #C8F5CA */
+const OPEN_BADGE_BG = new Color(76, 175, 80, 255);
+const OPEN_DOT = new Color(200, 245, 202, 255);
 
 /**
  * 营业厅收银台（对齐 Web 版 CashierCounter.vue）：
@@ -84,6 +87,42 @@ export class CashierCounterComponent extends Component {
     gm.events.off('save:loaded', this._refresh);
   }
 
+  /**
+   * 「营业中」状态标：绿点 + 文字，纯 Graphics 绘制（无贴图素材）。
+   * 位置在烘焙坊按钮正下方、EXP 数字右侧的空白处。
+   */
+  private _buildOpenBadge(): void {
+    const BADGE_W = 104;
+    const BADGE_H = 30;
+    const badge = new Node('openBadge');
+    badge.layer = this.node.layer;
+    badge.addComponent(UITransform).setContentSize(BADGE_W, BADGE_H);
+    // 左上角：称号左侧的空白处（右侧下方被 EXP 数字占着）
+    badge.setPosition(new Vec3(-PANEL_W / 2 + BADGE_W / 2 + 16, 22, 0));
+    this.node.addChild(badge);
+
+    const g = badge.addComponent(Graphics);
+    g.fillColor = OPEN_BADGE_BG;
+    g.roundRect(-BADGE_W / 2, -BADGE_H / 2, BADGE_W, BADGE_H, BADGE_H / 2);
+    g.fill();
+    // 左侧状态圆点
+    g.fillColor = OPEN_DOT;
+    g.circle(-BADGE_W / 2 + 18, 0, 6);
+    g.fill();
+
+    const textNode = new Node('openText');
+    textNode.layer = this.node.layer;
+    textNode.addComponent(UITransform);
+    textNode.setPosition(new Vec3(8, 0, 0));
+    badge.addChild(textNode);
+    const label = textNode.addComponent(Label);
+    label.string = '营业中';
+    label.fontSize = 17;
+    label.lineHeight = 20;
+    label.isBold = true;
+    label.color = Color.WHITE;
+  }
+
   private _build(): void {
     const ui = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
     ui.setContentSize(PANEL_W, PANEL_H);
@@ -97,6 +136,8 @@ export class CashierCounterComponent extends Component {
     bg.strokeColor = PANEL_BORDER;
     bg.roundRect(-PANEL_W / 2, -PANEL_H / 2, PANEL_W, PANEL_H, 18);
     bg.stroke();
+
+    this._buildOpenBadge();
 
     // 称号（含 Lv 前缀）
     this._titleLabel = this._makeLabel('titleLabel', new Vec3(-40, 18, 0), 28, true);

@@ -22,10 +22,16 @@ const ARROW_SIZE = 44;
 /** 箭头相对面板中心的横向位置（贴在四张卡片外侧） */
 const ARROW_OFFSET_X = (CARD_WIDTH + CARD_GAP) * MAX_VISIBLE_CARDS / 2 - 6;
 
+/** 顾客头像：用各品类的拟人角色图当顾客（对齐设计稿的头像位） */
+const AVATAR_SIZE = 54;
+const AVATAR_Y = 66;
+/** 头像取自这些品类的 Lv.3 角色图，按订单 id 稳定散列，同一单头像不跳变 */
+const AVATAR_POOL = ['cake', 'icecream', 'drink', 'fruit', 'candy', 'cookie'] as const;
+
 /** 需求物品图标 */
-const REQ_ICON_SIZE = 56;
-const REQ_ICON_Y = 48;
-const REQ_NAME_Y = 8;
+const REQ_ICON_SIZE = 50;
+const REQ_ICON_Y = 14;
+const REQ_NAME_Y = -18;
 /** 双需求时图标列的横向偏移 */
 const REQ_COL_OFFSET = 38;
 
@@ -125,6 +131,8 @@ export class OrderPanelComponent extends Component {
       // 木牌背景图垫底
       createSpriteNode('cardBg', card, 0, CARD_WIDTH, CARD_HEIGHT, 'sprites/bg/order-card');
 
+      this._buildAvatar(card, order);
+
       // 需求物品：图标 +（完成时）打勾徽章 + 名称
       const reqs = order.requirements;
       const colStep = reqs.length > 1 ? (REQ_COL_OFFSET * 2) / (reqs.length - 1) : 0;
@@ -141,6 +149,37 @@ export class OrderPanelComponent extends Component {
     }
 
     this._buildPageArrows(orders.length);
+  }
+
+  /**
+   * 顾客头像：奶油色圆底 + 品类拟人角色图。
+   *
+   * 没有专门的顾客立绘素材，复用各品类 Lv.3 的拟人角色（同一套画风），
+   * 品类按订单 id 稳定散列，避免每次重渲染换脸。
+   */
+  private _buildAvatar(card: Node, order: Order): void {
+    const holder = new Node('avatar');
+    holder.layer = card.layer;
+    holder.addComponent(UITransform).setContentSize(AVATAR_SIZE, AVATAR_SIZE);
+    holder.setPosition(new Vec3(0, AVATAR_Y, 0));
+    card.addChild(holder);
+
+    const g = holder.addComponent(Graphics);
+    g.fillColor = UI_COLORS.pillBg;
+    g.circle(0, 0, AVATAR_SIZE / 2);
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeColor = UI_COLORS.pillBorder;
+    g.circle(0, 0, AVATAR_SIZE / 2);
+    g.stroke();
+
+    let hash = 0;
+    for (let i = 0; i < order.id.length; i++) hash = (hash * 31 + order.id.charCodeAt(i)) | 0;
+    const cat = AVATAR_POOL[Math.abs(hash) % AVATAR_POOL.length];
+    createSpriteNode(
+      'avatarFace', holder, holder.children.length,
+      AVATAR_SIZE - 12, AVATAR_SIZE - 12, `sprites/items/${cat}/${cat}_3`,
+    );
   }
 
   /** 左右翻页箭头：仅在订单数超过一屏时出现，到头的一侧隐藏 */
