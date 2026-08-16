@@ -6,7 +6,7 @@ import {
   createBoard,
   dragMerge,
   activateMother,
-  placeNewMothers,
+  seedInitialBoard,
 } from '../core/board';
 import { createEnergy, tickEnergy } from '../core/energy';
 import { createEconomy } from '../core/economy';
@@ -176,7 +176,7 @@ export class GameManager extends Component {
   private loadFromPlatform(): void {
     const save = this.platform.load();
     if (!save) {
-      placeNewMothers(this.board, 1);
+      seedInitialBoard(this.board, 1);
       this.events.emit('board:reset', this.board);
       return;
     }

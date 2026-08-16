@@ -13,7 +13,7 @@
 | 用 Cocos Creator 打开工程（生成 library/temp/meta） | ✅ 完成（CLI 构建时自动导入，2026-08-15） |
 | Cocos 构建微信小游戏包 | ✅ 通过（CLI，debug 包 19MB，产物在 `build/wechatgame/`；退出码 36 但日志全部 success，与抖音端怪象一致） |
 | 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
-| 真实 AppID 申请 | ⬜ 未做（Cocos 构建产物暂用其默认测试 appid `wx6ac3f5090a6b99c5`） |
+| 真实 AppID 申请 | ✅ 已有（存放在 `wechat/project.private.config.json`，gitignored；构建后跑 `npm run sync-appid` 注入产物，2026-08-15） |
 
 **下一步只有一件事**：安装微信开发者工具 → 导入 `build/wechatgame/`（选「小游戏」，可用测试号）→ 模拟器按「四」的标准验证。
 
@@ -80,10 +80,40 @@ npm run type-check
   --build "platform=wechatgame;debug=true"
 ```
 
-3. 微信开发者工具里项目会自动检测变更重新编译（没反应就点「编译」按钮）。
-4. 首次使用：导入 → 小游戏 → 目录 `build/wechatgame` → 测试号（工具支持「使用测试号」免注册体验）→ 不使用云服务。
+3. 构建完成后跑 `npm run sync-appid`：把真实 AppID 从 `wechat/project.private.config.json`（gitignored）注入 `build/wechatgame/project.config.json`。Cocos 每次构建都会把产物 appid 重置为其默认测试值 `wx6ac3f5090a6b99c5`，忘了这步，开发者工具会报 `webapi_getwxaasyncsecinfo:fail`（查询不属于本账号的 appid）。
+4. 微信开发者工具里项目会自动检测变更重新编译（没反应就点「编译」按钮）。
+5. 首次使用：导入 → 小游戏 → 目录 `build/wechatgame` → 测试号（工具支持「使用测试号」免注册体验）→ 不使用云服务。
 
 > 抖音端已知怪象（微信端待验证）：CLI 构建退出码非 0（抖音端为 36），但日志显示全部任务 success、产物完整可用。**以日志和产物为准**。
+
+### 三·五、浏览器快速验证（不开微信开发者工具）
+
+UI/布局/核心逻辑改动可以先出 web 包在浏览器里验证，迭代快得多：
+
+```bash
+# 1. 出 web-mobile 包
+/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator \
+  --project ~/sweetie-merge-wechat \
+  --build "platform=web-mobile;debug=true"
+
+# 2. 无头/内嵌浏览器环境要打 shim（页面被判 hidden 时 rAF 被节流，主循环饿死）
+bash scripts/patch-web-preview.sh
+
+# 3. 起禁缓存静态服务器（Cocos 产物同名无 hash，普通静态服务器必踩缓存坑）
+python3 scripts/dev-server.py 8931
+```
+
+平台层已做非微信环境降级（`platform/wechat.ts` 的 `hasWx`）：存档走 localStorage、
+广告直接放行、登录走离线，浏览器里能跑完整游戏主循环。
+
+### 三·六、已踩过的坑（微信端实证）
+
+- **`[...someSet]` 是雷**：Cocos 构建的 Babel 是 loose 模式，Set/Map 展开会被编译成
+  `[].concat(set)`（不展开、把 Set 当单元素塞进数组）。写 `Array.from(set)`。
+  2026-08-16 已修 6 处（storage×3 / shard×2 / blindbox×1），曾导致存档图鉴字段损坏。
+- **手写场景的 Canvas 节点必须挂 Widget**（alignFlags 45 全边对齐）：引擎的
+  `alignCanvasWithScreen` 只调相机不改节点尺寸，编辑器默认场景是靠 Canvas 上的
+  Widget 把节点拉到可视尺寸的。漏挂 = 高于 16:9 的机型上下黑边。
 
 ## 四、判定「跑起来了」的标准
 
@@ -103,7 +133,7 @@ npm run type-check
 1. ✅ CLI 构建已通过（资源导入无报错、type-check 全绿、`build/wechatgame/` 产物完整，Main.scene 在主包）。
 2. ⬜ 安装微信开发者工具 → 导入 `build/wechatgame/` → 模拟器按「四」的标准验证主流程。
 3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
-4. ⬜ 申请真实 AppID 后替换 `wechat/project.config.json` 占位值（**不要 commit 真实 AppID**）。
+4. ✅ 真实 AppID 已落位：存放在 `wechat/project.private.config.json`（gitignored），`wechat/project.config.json` 保持占位值 `wx0000000000000000` 不动；每次构建后跑 `npm run sync-appid` 注入产物（脚本 `scripts/sync-appid.sh`，自身不含 AppID）。
 5. ⬜ bakery / blindbox / collection 三个分包的 Cocos 场景与 Bundle 尚未创建（逻辑已在 `core/`），不阻塞运行。分包创建后再把 `subpackages` 声明加回 `wechat/game.json`——占位声明曾导致开发者工具报 `["subpackages"][N]["root"] 不存在`（2026-08-15 实测，触发条件是误把 `wechat/` 当项目目录导入；正确目录永远是 `build/wechatgame/`）。
 6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。
 7. ⬜ 上线前改 release 构建（勾 MD5 + 压缩引擎）；主包 ≤ 4MB、总包 ≤ 30MB，超限先查 `assets/sprites/` 与分包配置。

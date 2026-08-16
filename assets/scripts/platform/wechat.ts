@@ -15,8 +15,18 @@ export function setInterstitialAdId(id: string) { _interstitialAdId = id; }
 
 const SAVE_KEY = 'sweetie_merge_save';
 
+/**
+ * 非微信环境标记（web-mobile 构建 / 浏览器本地验证）。
+ * wx 全局不存在时所有平台能力降级：存档走 localStorage、广告直接放行、登录走离线。
+ */
+const hasWx = typeof wx !== 'undefined';
+
 /** 微信平台初始化（在 app 入口调用一次） */
 export function wechatInit(): void {
+  if (!hasWx) {
+    console.warn('[wechat] 非微信环境，平台能力降级（浏览器验证模式）');
+    return;
+  }
   // 注册全局转发菜单
   wx.showShareMenu({ withShareTicket: false });
 
@@ -57,6 +67,10 @@ export const wechatPlatform: Platform = {
   name: 'wechat',
   save(data: SaveData): void {
     try {
+      if (!hasWx) {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+        return;
+      }
       wx.setStorageSync(SAVE_KEY, JSON.stringify(data));
     } catch {
       console.warn('[wechat] 存档保存失败');
@@ -65,7 +79,7 @@ export const wechatPlatform: Platform = {
 
   load(): SaveData | null {
     try {
-      const raw = wx.getStorageSync(SAVE_KEY);
+      const raw = hasWx ? wx.getStorageSync(SAVE_KEY) : localStorage.getItem(SAVE_KEY);
       if (typeof raw !== 'string' || raw === '') return null;
       return deserialize(JSON.parse(raw));
     } catch {
@@ -75,6 +89,10 @@ export const wechatPlatform: Platform = {
   },
 
   showRewardedAd(): Promise<boolean> {
+    if (!hasWx) {
+      console.warn('[wechat] 非微信环境，激励视频直接放行');
+      return Promise.resolve(true);
+    }
     return new Promise((resolve) => {
       const ad = getRewardedAd();
 
@@ -98,6 +116,7 @@ export const wechatPlatform: Platform = {
   },
 
   showInterstitialAd(): Promise<void> {
+    if (!hasWx) return Promise.resolve();
     return new Promise((resolve) => {
       const ad = getInterstitialAd();
 
@@ -112,6 +131,9 @@ export const wechatPlatform: Platform = {
   },
 
   login(): Promise<{ openid: string }> {
+    if (!hasWx) {
+      return Promise.reject(new Error('[wechat] 非微信环境，跳过服务端登录（离线模式）'));
+    }
     return new Promise((resolve, reject) => {
       const apiBase = _apiBaseUrl || '/api';
       wx.login({
@@ -154,6 +176,7 @@ export const wechatPlatform: Platform = {
   },
 
   share(title: string, imageUrl?: string): Promise<boolean> {
+    if (!hasWx) return Promise.resolve(false);
     return new Promise((resolve) => {
       // 微信小游戏的主动转发不提供成功/失败回调，调用即视为已发起
       wx.shareAppMessage({

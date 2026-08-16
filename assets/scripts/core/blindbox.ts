@@ -202,7 +202,7 @@ function randomItemInRange(
   minLv: number,
   maxLv: number,
 ): string | null {
-  const cats = [...unlockedCategories];
+  const cats = Array.from(unlockedCategories);
   if (cats.length === 0) return null;
 
   const cat = cats[Math.floor(Math.random() * cats.length)];

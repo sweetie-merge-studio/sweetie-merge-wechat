@@ -81,7 +81,7 @@ export function addShard(
   // 检查是否集满
   const completed = current + added >= max;
   if (completed) {
-    state.completedRareIds = new Set([...state.completedRareIds, rare.id]);
+    state.completedRareIds = new Set(state.completedRareIds).add(rare.id);
   }
 
   return { added, completed };
@@ -95,7 +95,7 @@ export function getDroppableCategories(
   state: ShardState,
   unlockedCategories: Set<Category>,
 ): Category[] {
-  return [...unlockedCategories].filter(cat => {
+  return Array.from(unlockedCategories).filter(cat => {
     const rare = RARE_ITEM_BY_CATEGORY.get(cat);
     if (!rare) return false;
     return !state.completedRareIds.has(rare.id) && !isShardComplete(state, cat);
