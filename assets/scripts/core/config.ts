@@ -126,7 +126,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     { id: 'collection', label: '图鉴', labelEn: 'Journal',   emoji: '📖', icon: assetUrl('/assets/icons/nav/nav_collection.webp'), enabled: true },
     { id: 'home',       label: '首页', labelEn: 'Home',      emoji: '🏠', icon: assetUrl('/assets/icons/nav/nav_home.webp'), enabled: true },
     { id: 'backpack',   label: '背包', labelEn: 'Backpack',  emoji: '🎒', icon: assetUrl('/assets/icons/nav/nav_backpack.webp'), enabled: true },
-    { id: 'shop',       label: '商店', labelEn: 'Shop',      emoji: '🏪', icon: assetUrl('/assets/icons/nav/nav_shop.webp'), enabled: false },
+    { id: 'shop',       label: '商店', labelEn: 'Shop',      emoji: '🏪', icon: assetUrl('/assets/icons/nav/nav_shop.webp'), enabled: true },
   ],
 
   energy: {

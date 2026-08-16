@@ -16,7 +16,6 @@ import {
   activateMother,
   findEmptyCell,
   placeNewMothers,
-  seedInitialBoard,
 } from '../core/board';
 import { initAudio, playBgm, playSfx } from './AudioManager';
 import { applyEnv } from '../env';
@@ -209,7 +208,9 @@ export class GameManager extends Component {
   private loadFromPlatform(): void {
     const save = this.platform.load();
     if (!save) {
-      seedInitialBoard(this.board, 1);
+      // 开局只放母棋，与 Web 一致：棋盘上预置可合成的物品会让新手引导第三步
+      // 「拖到一起，合成」失去教学意义（玩家不点母棋也能直接合）
+      placeNewMothers(this.board, 1);
       this.autoMatchOrders();
       this.events.emit('board:reset', this.board);
       return;

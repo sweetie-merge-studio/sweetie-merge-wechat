@@ -171,36 +171,6 @@ export function placeNewMothers(board: Cell[], playerLevel: number): string[] {
   return placed;
 }
 
-/**
- * 首次进入（无存档）的开局棋盘：母棋 + 一批可立即合成的低级物品。
- * 4 个 Lv.1 + 2 个 Lv.2：开局即有两组合成可做，且首批订单要的 Lv.2/Lv.3
- * 物品几步内可交付，避免玩家面对空盘无从下手。
- */
-export function seedInitialBoard(board: Cell[], playerLevel: number): void {
-  placeNewMothers(board, playerLevel);
-
-  // 注意：不能写 [...set] —— Cocos 构建的 Babel loose 模式会编译成 [].concat(set)，Set 不会被展开
-  const firstCat = Array.from(getUnlockedCategoriesByLevel(playerLevel))[0];
-  if (!firstCat) return;
-
-  const motherIndices: number[] = [];
-  for (let i = 0; i < board.length; i++) {
-    const id = board[i].itemId;
-    if (id && isMother(id)) motherIndices.push(i);
-  }
-
-  const starterIds = [
-    `${firstCat}_1`, `${firstCat}_1`, `${firstCat}_1`, `${firstCat}_1`,
-    `${firstCat}_2`, `${firstCat}_2`,
-  ] as ItemId[];
-  for (const itemId of starterIds) {
-    if (!getItemById().has(itemId)) continue;
-    const idx = findNaturalEmptyCell(board, motherIndices);
-    if (idx < 0) return;
-    board[idx] = { itemId };
-  }
-}
-
 /** 移除棋盘上所有母棋 */
 export function removeAllMothers(board: Cell[]): void {
   for (let i = 0; i < board.length; i++) {
