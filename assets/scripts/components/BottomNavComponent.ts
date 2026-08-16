@@ -7,21 +7,27 @@ import { createSpriteNode, UI_COLORS } from './ui-factory';
 const { ccclass } = _decorator;
 
 const BAR_W = 720;
-const BAR_H = 130;
+const BAR_H = 142;
 const TAB_W = 120;
-const TAB_H = 96;
+/** 三行内容（图标 48 + 中文 26 + 英文 18）+ 上下留白 */
+const TAB_H = 108;
 /** 选中态底色 #FFE8C0 */
 const TAB_ACTIVE_BG = new Color(255, 232, 192, 255);
 /** 未开放文字 #A0784C */
 const TAB_DIM_TEXT = new Color(160, 120, 76, 255);
 
 /** page: 点击时打开的分包页面（对齐 Web 版 onNavigate：商店 tab 进盲盒视图） */
-const TABS: ReadonlyArray<{ key: string; label: string; page?: { bundle: string; component: string } }> = [
-  { key: 'daily', label: '每日' },
-  { key: 'collection', label: '图鉴', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
-  { key: 'home', label: '首页' },
-  { key: 'backpack', label: '背包' },
-  { key: 'shop', label: '商店', page: { bundle: 'blindbox', component: 'BlindboxPageComponent' } },
+const TABS: ReadonlyArray<{
+  key: string;
+  label: string;
+  en: string;
+  page?: { bundle: string; component: string };
+}> = [
+  { key: 'daily', label: '每日', en: 'Daily' },
+  { key: 'collection', label: '图鉴', en: 'Journal', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
+  { key: 'home', label: '首页', en: 'Home' },
+  { key: 'backpack', label: '背包', en: 'Backpack' },
+  { key: 'shop', label: '商店', en: 'Shop', page: { bundle: 'blindbox', component: 'BlindboxPageComponent' } },
 ];
 
 /**
@@ -63,21 +69,36 @@ export class BottomNavComponent extends Component {
         g.fill();
       }
 
-      // 图标（Web 版 nav_*.png 原图）+ 下方文字
-      createSpriteNode('icon', tabNode, tabNode.children.length, 52, 52,
-        `sprites/ui/nav/nav_${tab.key}`, new Vec3(0, 16, 0));
+      // 图标 + 中文 + 英文小字三行，纵向让位后整体上移
+      createSpriteNode('icon', tabNode, tabNode.children.length, 48, 48,
+        `sprites/ui/nav/nav_${tab.key}`, new Vec3(0, 22, 0));
+
+      const textColor = active || tab.page ? UI_COLORS.textBrown : TAB_DIM_TEXT;
 
       const labelNode = new Node('label');
       labelNode.layer = this.node.layer;
       labelNode.addComponent(UITransform);
-      labelNode.setPosition(new Vec3(0, -30, 0));
+      labelNode.setPosition(new Vec3(0, -16, 0));
       tabNode.addChild(labelNode);
       const label = labelNode.addComponent(Label);
       label.string = tab.label;
-      label.fontSize = active ? 24 : 22;
-      label.lineHeight = 28;
+      label.fontSize = active ? 23 : 21;
+      label.lineHeight = 26;
       label.isBold = active;
-      label.color = active || tab.page ? UI_COLORS.textBrown : TAB_DIM_TEXT;
+      label.color = textColor;
+
+      // 英文副标（设计稿：中文下方一行小字）
+      const enNode = new Node('labelEn');
+      enNode.layer = this.node.layer;
+      enNode.addComponent(UITransform);
+      enNode.setPosition(new Vec3(0, -38, 0));
+      tabNode.addChild(enNode);
+      const enLabel = enNode.addComponent(Label);
+      enLabel.string = tab.en;
+      enLabel.fontSize = 15;
+      enLabel.lineHeight = 18;
+      enLabel.isBold = active;
+      enLabel.color = textColor;
 
       // 点击走全局输入版点击区（节点触摸事件在本项目收不到，见 tap-zone.ts）
       const page = tab.page;

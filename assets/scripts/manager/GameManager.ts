@@ -162,7 +162,7 @@ export class GameManager extends Component {
 
     const nav = new Node('BottomNav');
     nav.layer = this.node.layer;
-    nav.addComponent(UITransform).setContentSize(720, 130);
+    nav.addComponent(UITransform).setContentSize(720, 142);
     nav.setPosition(new Vec3(0, -575, 0));
     this.node.addChild(nav);
     nav.addComponent(BottomNavComponent);
