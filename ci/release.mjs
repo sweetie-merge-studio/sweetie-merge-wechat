@@ -40,12 +40,14 @@ const PLATFORMS = {
     cocosPlatform: 'wechatgame',
     configDir: 'wechat',
     totalLimitMB: 30,
+    mainLimitMB: 4,
   },
   douyin: {
     label: '抖音小游戏',
     cocosPlatform: 'bytedance-mini-game',
     configDir: 'douyin',
     totalLimitMB: 20,
+    mainLimitMB: 4,
   },
 };
 
@@ -154,13 +156,30 @@ function stepBuild(ctx) {
   log(`构建 ✅（exit ${r.code}，产物 ${ctx.buildDir}）`);
 }
 
+/**
+ * 包体检查：整包与主包分别判定。
+ *
+ * 主包（总包减去 subpackages/）才是卡提审的那条线——两端都是 4MB。
+ * 只看整包会漏判：分包没装资源时，整包很宽松而主包早已超限。
+ */
 function stepSizeCheck(ctx) {
-  const sizeMB = dirSizeMB(ctx.buildDir);
-  const msg = `包体 ${sizeMB.toFixed(1)}MB / 整包限额 ${ctx.totalLimitMB}MB（${ctx.label}）`;
-  if (sizeMB > ctx.totalLimitMB) {
-    log(`⚠️ 超限：${msg} — 先查 assets/sprites/ 与分包配置；debug 包偏大属正常，release 构建后再评估`);
+  const totalMB = dirSizeMB(ctx.buildDir);
+  const subDir = join(ctx.buildDir, 'subpackages');
+  const subMB = existsSync(subDir) ? dirSizeMB(subDir) : 0;
+  const mainMB = totalMB - subMB;
+
+  const totalMsg = `整包 ${totalMB.toFixed(1)}MB / ${ctx.totalLimitMB}MB`;
+  if (totalMB > ctx.totalLimitMB) {
+    log(`⚠️ 整包超限：${totalMsg} — 查 assets/resources/ 与分包配置；debug 包偏大属正常`);
   } else {
-    log(`包体 ✅ ${msg}`);
+    log(`整包 ✅ ${totalMsg}`);
+  }
+
+  const mainMsg = `主包 ${mainMB.toFixed(2)}MB / ${ctx.mainLimitMB}MB（分包 ${subMB.toFixed(2)}MB）`;
+  if (mainMB > ctx.mainLimitMB) {
+    log(`⚠️ 主包超限：${mainMsg} — 提审会被拒。压图 / 裁引擎模块（settings/v2/packages/engine.json）/ 把玩法资源挪进分包`);
+  } else {
+    log(`主包 ✅ ${mainMsg}`);
   }
 }
 
