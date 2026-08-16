@@ -16,6 +16,16 @@ import {
   paintRoundRect,
 } from '../../scripts/components/collection-cells';
 import { buildTabBar, type CollectionTab } from '../../scripts/components/collection-tabs';
+import {
+  RING_COMPLETE,
+  RING_PROGRESS,
+  drawProgressRing,
+  makeNode,
+} from '../../scripts/components/collection-effects';
+import { FloatEffect } from '../../scripts/components/effect-float';
+import { RainbowBorderEffect } from '../../scripts/components/effect-rainbow-border';
+import { SparkleEffect } from '../../scripts/components/effect-sparkle';
+import { levelSubtitle, showItemDetail } from '../../scripts/components/collection-detail';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { CATEGORIES, RARE_ITEM_BY_CATEGORY, getItemSpritePath } from '../../scripts/data/items';
@@ -41,6 +51,17 @@ const RARE_COLS = 2;
 const RARE_GAP = 16;
 const RARE_W = (CONTENT_W - RARE_GAP) / RARE_COLS;
 const RARE_H = 250;
+/** 进度环半径与线宽（Web .showcase-ring r=42 stroke-width=5 等比放大） */
+const RING_R = 46;
+const RING_W = 8;
+
+/** 完成卡的四颗粒子（对应 Web .s-particle p1..p4 的位置与延迟差） */
+const RARE_PARTICLES: readonly { x: number; y: number; size: number; color: Color; delay: number }[] = [
+  { x: 74, y: 34, size: 20, color: new Color(255, 138, 181, 255), delay: 0 },
+  { x: -80, y: -18, size: 24, color: new Color(139, 164, 255, 255), delay: 0.8 },
+  { x: -66, y: 40, size: 18, color: new Color(200, 109, 215, 255), delay: 1.5 },
+  { x: 82, y: -24, size: 22, color: new Color(255, 184, 108, 255), delay: 2.2 },
+];
 
 /** 经济卡：合成链一行 4 级 */
 const CHAIN_CARD_H = 190;
@@ -290,6 +311,13 @@ export class CollectionPageComponent extends Component {
                   showPageToast(this.node, `${cat.items[i]?.name ?? itemId} 奖励 +1 钻石`);
                 }
               },
+              onDetail: () =>
+                showItemDetail(this.node, {
+                  spritePath: getItemSpritePath(itemId),
+                  emoji: cat.items[i]?.emoji ?? '',
+                  name: cat.items[i]?.name ?? itemId,
+                  subtitle: levelSubtitle(i + 1, cat.name),
+                }),
             },
           );
         }
@@ -320,6 +348,16 @@ export class CollectionPageComponent extends Component {
       width: w - 100,
       align: 'left',
     }).node.setPosition(new Vec3(-w / 2 + 76 + (w - 100) / 2, 0, 0));
+
+    if (!unlocked) return;
+    const zone = strip.addComponent(TapZoneComponent);
+    zone.onTap = () =>
+      showItemDetail(this.node, {
+        spritePath: getItemSpritePath(`mother_${catId}`),
+        emoji: '',
+        name: `${catName}工坊`,
+        subtitle: '母棋',
+      });
   }
 
   /* ─── 稀有 Tab：2 列展示卡 + 碎片点阵 ─── */
@@ -340,6 +378,7 @@ export class CollectionPageComponent extends Component {
             this._buildRareCard(parent, new Vec3(x, y, 0), {
               id: rare.id,
               name: rare.name,
+              emoji: rare.emoji,
               categoryName: cat.name,
               count: getShardCount(gm.shard, cat.id),
               required: getShardsRequired(cat.id),
@@ -355,7 +394,15 @@ export class CollectionPageComponent extends Component {
   private _buildRareCard(
     parent: Node,
     pos: Vec3,
-    info: { id: string; name: string; categoryName: string; count: number; required: number; completed: boolean },
+    info: {
+      id: string;
+      name: string;
+      emoji: string;
+      categoryName: string;
+      count: number;
+      required: number;
+      completed: boolean;
+    },
   ): void {
     const card = new Node(`rare_${info.id}`);
     card.layer = parent.layer;
@@ -370,13 +417,19 @@ export class CollectionPageComponent extends Component {
       RARE_H,
       22,
       info.completed ? new Color(255, 250, 255, 220) : started ? new Color(255, 255, 255, 140) : LOCKED_BG,
-      info.completed ? new Color(200, 109, 215, 200) : started ? new Color(200, 160, 220, 110) : LOCKED_BORDER,
-      info.completed ? 4 : 2,
+      // 完成态的描边交给流光组件逐帧重绘，这里不画静态描边
+      info.completed ? undefined : started ? new Color(200, 160, 220, 110) : LOCKED_BORDER,
+      2,
     );
 
-    // 中心图标：完成后显示稀有物品贴图，未完成显示锁
-    const iconPath = info.completed ? getItemSpritePath(info.id) : LOCK_SPRITE;
-    if (iconPath) addSprite(card, iconPath, info.completed ? 88 : 44, RARE_H / 2 - 66);
+    if (info.completed) {
+      const border = makeNode(card, 'rainbow', RARE_W, new Vec3(0, 0, 0));
+      const fx = border.addComponent(RainbowBorderEffect);
+      fx.width = RARE_W;
+      fx.height = RARE_H;
+    }
+
+    this._buildRareRing(card, info);
 
     addLabel(card, info.name, {
       size: 22,
@@ -400,6 +453,16 @@ export class CollectionPageComponent extends Component {
       card.addChild(badge);
       paintRoundRect(badge, 120, 36, 12, new Color(200, 109, 215, 255));
       addLabel(badge, '已收集', { size: 20, color: new Color(255, 255, 255, 255), bold: true });
+
+      // 完成卡可点开详情（未完成的还不知道长什么样，保持不可点）
+      const zone = card.addComponent(TapZoneComponent);
+      zone.onTap = () =>
+        showItemDetail(this.node, {
+          spritePath: getItemSpritePath(info.id),
+          emoji: info.emoji,
+          name: info.name,
+          subtitle: levelSubtitle(0, info.categoryName),
+        });
       return;
     }
 
@@ -409,6 +472,43 @@ export class CollectionPageComponent extends Component {
       color: started ? UNCLAIMED_STROKE : TEXT_MUTED,
       bold: true,
       y: -RARE_H / 2 + 24,
+    });
+  }
+
+  /**
+   * 稀有卡的圆形进度环 + 中心展示（Web .showcase-ring-wrap）。
+   * 完成后中心 emoji 漂浮，四角撒粒子。
+   */
+  private _buildRareRing(
+    card: Node,
+    info: { id: string; emoji: string; count: number; required: number; completed: boolean },
+  ): void {
+    const ringY = RARE_H / 2 - 66;
+    const ring = makeNode(card, 'ring', RING_R * 2 + RING_W, new Vec3(0, ringY, 0));
+    drawProgressRing(
+      ring,
+      RING_R,
+      RING_W,
+      info.completed ? 1 : info.count / info.required,
+      info.completed ? RING_COMPLETE : RING_PROGRESS,
+    );
+
+    if (!info.completed) {
+      // 未完成：环心放锁，进度靠环 + 点阵表达
+      addSprite(ring, LOCK_SPRITE, 40);
+      return;
+    }
+
+    // 完成：环心 emoji 漂浮（稀有物品暂无贴图，emoji 即 Web .showcase-emoji）
+    const center = makeNode(ring, 'center', RING_R * 2, new Vec3(0, 0, 0));
+    center.addComponent(FloatEffect);
+    addLabel(center, info.emoji, { size: 56, color: UI_COLORS.textBrown });
+
+    RARE_PARTICLES.forEach((p, i) => {
+      const node = makeNode(card, `particle_${i}`, p.size, new Vec3(p.x, ringY + p.y, 0));
+      const fx = node.addComponent(SparkleEffect);
+      fx.delay = p.delay;
+      addLabel(node, i % 2 === 0 ? '✦' : '✧', { size: p.size, color: p.color });
     });
   }
 

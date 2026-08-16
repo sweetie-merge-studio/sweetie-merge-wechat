@@ -1,5 +1,6 @@
 import { Color, Graphics, Label, Node, Sprite, UITransform, Vec3 } from 'cc';
 
+import { PulseEffect } from './effect-pulse';
 import { loadSpriteFrame, applySpriteFrame } from './sprite-loader';
 import { TapZoneComponent } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
@@ -88,13 +89,13 @@ export function addLabel(
   return label;
 }
 
-/** 建一个贴图节点，加载失败时静默留空（调用方已有底板兜底） */
+/** 建一个贴图节点；贴图缺失时调用 onMissing，未提供则静默留空 */
 export function addSprite(
   parent: Node,
   path: string,
   size: number,
   y = 0,
-  opacityFallback?: () => void,
+  onMissing?: () => void,
 ): Node {
   const node = new Node('icon');
   node.layer = parent.layer;
@@ -106,7 +107,7 @@ export function addSprite(
   loadSpriteFrame(path, sf => {
     if (!sprite.isValid) return;
     if (sf) applySpriteFrame(sprite, sf);
-    else opacityFallback?.();
+    else onMissing?.();
   });
   return node;
 }
@@ -152,8 +153,11 @@ export function buildItemCell(
   );
 
   if (info.unclaimed) {
-    // 未领取：钻石覆盖层取代物品图（与 Web .unclaimed-overlay 一致）
-    addSprite(cell, DIAMOND_SPRITE, 30);
+    // 未领取：钻石覆盖层取代物品图（与 Web .unclaimed-overlay 一致），并做呼吸高亮。
+    // Pulse 挂在钻石子节点上而不是 cell：cell 上还有 TapZone，
+    // 改 cell 的 UIOpacity 会连描边一起闪，也更容易和命中矩形纠缠。
+    const diamond = addSprite(cell, DIAMOND_SPRITE, 30);
+    diamond.addComponent(PulseEffect);
     const zone = cell.addComponent(TapZoneComponent);
     zone.onTap = () => handlers.onClaim?.();
     return cell;
