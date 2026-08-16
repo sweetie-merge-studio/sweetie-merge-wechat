@@ -82,6 +82,9 @@ npm run type-check
 
 3. 构建完成后跑 `npm run sync-appid`：把真实 AppID 从 `wechat/project.private.config.json`（gitignored）注入 `build/wechatgame/project.config.json`。Cocos 每次构建都会把产物 appid 重置为其默认测试值 `wx6ac3f5090a6b99c5`，忘了这步，开发者工具会报 `webapi_getwxaasyncsecinfo:fail`（查询不属于本账号的 appid）。
 4. 微信开发者工具里项目会自动检测变更重新编译（没反应就点「编译」按钮）。
+   ⚠️ 工具可能在**构建进行中**就自动编译——此时 `build/wechatgame/` 是半成品
+   （game.json 缺失 / appid 是 Cocos 默认值），会黑屏并卡在错误态（2026-08-16 实证）。
+   **构建 + sync-appid 全部完成后，务必手动再点一次「编译」**。
 5. 首次使用：导入 → 小游戏 → 目录 `build/wechatgame` → 测试号（工具支持「使用测试号」免注册体验）→ 不使用云服务。
 
 > 抖音端已知怪象（微信端待验证）：CLI 构建退出码非 0（抖音端为 36），但日志显示全部任务 success、产物完整可用。**以日志和产物为准**。
