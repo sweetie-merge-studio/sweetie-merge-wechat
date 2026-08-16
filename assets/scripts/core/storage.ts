@@ -71,8 +71,9 @@ export function serialize(
 }
 
 /** 安全取数字，非有限数字则返回默认值 */
-function safeNum(val: unknown, fallback: number): number {
-  return typeof val === 'number' && Number.isFinite(val) ? val : fallback;
+function safeNum(val: unknown, fallback: number, min?: number): number {
+  const n = typeof val === 'number' && Number.isFinite(val) ? val : fallback;
+  return min === undefined ? n : Math.max(min, n);
 }
 
 /** 反序列化存档数据，失败返回 null */
@@ -90,15 +91,16 @@ export function deserialize(raw: unknown): SaveData | null {
 
   const cfg = getConfig().energy;
   const energy: EnergyState = {
-    current: safeNum(rawEnergy.current, 0),
-    max: safeNum(rawEnergy.max, cfg.max),
-    regenPerMinute: safeNum(rawEnergy.regenPerMinute, cfg.regenPerMinute),
+    // 篡改或损坏的存档可能带负数，这里统一夹到 0 以上（lastTickAt 是时间戳，不夹）
+    current: safeNum(rawEnergy.current, 0, 0),
+    max: safeNum(rawEnergy.max, cfg.max, 0),
+    regenPerMinute: safeNum(rawEnergy.regenPerMinute, cfg.regenPerMinute, 0),
     lastTickAt: safeNum(rawEnergy.lastTickAt, Date.now()),
   };
 
   const economy: EconomyState = {
-    coins: safeNum(rawEconomy.coins, 0),
-    diamonds: safeNum(rawEconomy.diamonds, 0),
+    coins: safeNum(rawEconomy.coins, 0, 0),
+    diamonds: safeNum(rawEconomy.diamonds, 0, 0),
   };
 
   return {

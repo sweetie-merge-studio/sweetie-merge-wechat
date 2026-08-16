@@ -10,7 +10,7 @@ export const BACKPACK_UNLOCK_BATCH = 1;
 /** 解锁下一个格子需要的钻石（按已解锁次数递增，封顶 50） */
 export function unlockSlotsCost(currentUnlocked: number): number {
   const timesUnlocked = currentUnlocked - BACKPACK_INITIAL_SLOTS;
-  // 平缓递增，封顶 50 钻石/格，总计约 468 钻石全开 26 格
+  // 平缓递增，封顶 50 钻石/格；从初始 10 格全开到 36 格共 26 次解锁，合计 624 钻石
   const costs = [2, 3, 3, 5, 5, 8, 8, 10, 10, 15, 15, 20, 20, 25, 25, 30, 30, 35, 35, 40, 40, 45, 45, 50, 50, 50];
   return costs[Math.min(timesUnlocked, costs.length - 1)];
 }
