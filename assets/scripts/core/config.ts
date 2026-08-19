@@ -91,6 +91,7 @@ export interface AppConfig {
 
   // --- 广告参数 ---
   ad: {
+    interstitialEnabled: boolean;    // 插屏总开关（上线红线：默认关闭，只保激励视频）
     interstitialMinInterval: number; // 毫秒
     interstitialMaxPerDay: number;
     newUserProtectMs: number;        // 新用户保护时长
@@ -163,6 +164,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
 
   ad: {
+    interstitialEnabled: false,
     interstitialMinInterval: 5 * 60 * 1000,
     interstitialMaxPerDay: 8,
     newUserProtectMs: 5 * 60 * 1000,
