@@ -38,6 +38,10 @@ export interface DailyState {
   signedIn: boolean;
   /** 今日金币购买精力次数 */
   coinRefillCount: number;
+  /** 今日能量位激励视频已看次数（频控上限见 config.ad.energyAdMaxPerDay） */
+  energyAdCount: number;
+  /** 上一次能量位激励视频的时间戳 ms（冷却用，跨天不重置） */
+  energyAdLastAt: number;
 }
 
 // --- 连续登录奖励表（7 天一轮，断签重置）---
@@ -77,6 +81,8 @@ export function createDailyState(): DailyState {
     streak: 0,
     signedIn: false,
     coinRefillCount: 0,
+    energyAdCount: 0,
+    energyAdLastAt: 0,
   };
 }
 
@@ -100,6 +106,7 @@ export function checkNewDay(state: DailyState): boolean {
   state.tasksClaimed = false;
   state.signedIn = false;
   state.coinRefillCount = 0;
+  state.energyAdCount = 0;
   return true;
 }
 

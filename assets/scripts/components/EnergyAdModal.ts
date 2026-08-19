@@ -48,17 +48,26 @@ export class EnergyAdModal extends Component {
     const panel = buildPanel(this.node, MODAL_W, MODAL_H);
 
     const reward = getConfig().energy.adReward;
+    // 频控达限（单日上限/冷却中）时不给广告入口，只留「再等等」——入口隐藏优于点了报错
+    const adAvailable = GameManager.instance.energyAdAvailable;
     buildModalLabel(panel, '精力不足', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
-    buildModalLabel(panel, `看广告补 +${reward} 精力`, 24, new Vec3(0, MODAL_H / 2 - 118, 0));
+    buildModalLabel(
+      panel,
+      adAvailable ? `看广告补 +${reward} 精力` : '今日看广告次数已用完，精力会随时间恢复',
+      24,
+      new Vec3(0, MODAL_H / 2 - 118, 0),
+    );
     buildModalLabel(panel, `+${reward}`, 44, new Vec3(0, 10, 0), {
       bold: true,
       color: ENERGY_GREEN,
     });
 
-    const btnY = -MODAL_H / 2 + 62 + MODAL_BTN_H + BTN_GAP;
-    this._adButton = buildModalButton(panel, new Vec3(0, btnY, 0), '看广告', BTN_DOUBLE, () =>
-      void this._onWatch(),
-    );
+    if (adAvailable) {
+      const btnY = -MODAL_H / 2 + 62 + MODAL_BTN_H + BTN_GAP;
+      this._adButton = buildModalButton(panel, new Vec3(0, btnY, 0), '看广告', BTN_DOUBLE, () =>
+        void this._onWatch(),
+      );
+    }
     buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '再等等', BTN_PLAIN, () =>
       this._onSkip(),
     );

@@ -70,6 +70,7 @@ import { wechatPlatform, wechatInit } from '../platform/wechat';
 import { initAnalyticsWechat } from '../platform/analytics-wechat';
 import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
 import { Events, trackEvent } from '../core/analytics';
+import { canWatchEnergyAd, recordEnergyAdShown } from '../core/ad-trigger';
 import { claimAdReward, type AdRewardType } from '../api/rewards';
 import { buyEnergy, type BuyCurrency, type BuyEnergyType } from '../api/energy';
 import { getToken } from '../api/request';
@@ -603,11 +604,18 @@ export class GameManager extends Component {
     }
   }
 
+  /** 能量位广告当前是否可看（单日上限 + 冷却），UI 据此决定是否显示入口 */
+  get energyAdAvailable(): boolean {
+    return canWatchEnergyAd(this.daily, Date.now());
+  }
+
   /** 精力耗尽时看广告补 20 点（不受上限限制） */
   async watchAdForEnergy(): Promise<boolean> {
+    if (!canWatchEnergyAd(this.daily, Date.now())) return false;
     const ok = await this.platform.showRewardedAd();
     if (!ok) return false;
     addEnergyUncapped(this.energy, getConfig().energy.adReward);
+    recordEnergyAdShown(this.daily, Date.now());
     this._afterAdWatched();
     this.events.emit('energy:changed', this.energy);
     this.scheduleSave();

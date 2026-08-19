@@ -1,4 +1,5 @@
 import type { EnergyState, ItemId } from './types';
+import type { DailyState } from './daily';
 import { getItemById } from '../data/items';
 import { getConfig } from './config';
 
@@ -55,4 +56,21 @@ export function getLowLevelIndices(boardItemIds: ReadonlyArray<ItemId | undefine
 /** 是否可以展示插屏广告 */
 export function canShowInterstitial(lastShownAt: number, now: number): boolean {
   return now - lastShownAt >= getConfig().ad.interstitialMinInterval;
+}
+
+// --- 能量位激励视频频率控制 ---
+// 只约束能量位（P0）：双倍/稀有物品位有各自的结构性频控（每单一次、棋盘空位），不共享这份预算。
+// 计数持久化在 DailyState 上，跨天由 checkNewDay 重置；冷却时间戳跨天保留。
+
+/** 能量位激励视频当前是否可看（未达单日上限且过了冷却） */
+export function canWatchEnergyAd(daily: DailyState, now: number): boolean {
+  const { energyAdMaxPerDay, energyAdCooldownMs } = getConfig().ad;
+  if (daily.energyAdCount >= energyAdMaxPerDay) return false;
+  return now - daily.energyAdLastAt >= energyAdCooldownMs;
+}
+
+/** 记一次能量位激励视频观看 */
+export function recordEnergyAdShown(daily: DailyState, now: number): void {
+  daily.energyAdCount += 1;
+  daily.energyAdLastAt = now;
 }

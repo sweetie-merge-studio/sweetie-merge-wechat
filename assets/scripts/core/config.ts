@@ -95,6 +95,8 @@ export interface AppConfig {
     interstitialMaxPerDay: number;
     newUserProtectMs: number;        // 新用户保护时长
     batchClearThreshold: number;     // 低级物品堆积阈值
+    energyAdMaxPerDay: number;       // 能量位激励视频单日上限
+    energyAdCooldownMs: number;      // 两次能量位激励视频最小间隔（毫秒）
   };
 
   // --- 棋盘参数 ---
@@ -165,6 +167,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     interstitialMaxPerDay: 8,
     newUserProtectMs: 5 * 60 * 1000,
     batchClearThreshold: 12,
+    energyAdMaxPerDay: 5,        // [待测试]
+    energyAdCooldownMs: 60 * 1000, // [待测试]
   },
 
   board: {
