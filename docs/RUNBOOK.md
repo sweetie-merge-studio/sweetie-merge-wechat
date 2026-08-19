@@ -15,7 +15,7 @@
 | release 包体达标 | ✅ 整包 2.77MB / 30MB、主包 2.75MB / 4MB（2026-08-16 量化压图 + 裁引擎，见「三·八」） |
 | 三个玩法分包（bakery / blindbox / collection） | ✅ 已落地（代码进分包，但资源仍在主包） |
 | 浏览器实跑验证（web-mobile 包） | ✅ 画面完整、60 FPS、console 零报错（2026-08-16） |
-| 微信开发者工具安装 + 导入验证 | ⬜ 未做（本机未安装；首次需微信扫码登录，只能人工操作） |
+| 微信开发者工具安装 + 导入验证 | ⬜ 工具已安装（`/Applications/wechatwebdevtools.app`），导入验证未做（首次需微信扫码登录，只能人工操作） |
 | 真实 AppID 申请 | ✅ 已有（存放在 `wechat/project.private.config.json`，gitignored；构建后跑 `npm run sync-appid` 注入产物，2026-08-15） |
 | 服务端 `WECHAT_APPID` / `WECHAT_APP_SECRET` | ⬜ 未配（`.env` 里没有），`/auth/wechat` 返回 503，登录走降级 |
 
@@ -280,7 +280,7 @@ pngquant --quality=65-92 --speed 1 --strip \
 4. ✅ 真实 AppID 已落位：存放在 `wechat/project.private.config.json`（gitignored），`wechat/project.config.json` 保持占位值 `wx0000000000000000` 不动；每次构建后跑 `npm run sync-appid` 注入产物（脚本 `scripts/sync-appid.sh`，自身不含 AppID）。
 5. ✅ bakery / blindbox / collection 三个分包已落地（2026-08-16）：`assets/bundles/` 下三个页面 + `project.json` Bundle 声明 + `builder.json` 的 `bundleConfig.custom.minigame_subpackage`，构建产物含 `subpackages/`。
    ⬜ **但分包目前只有代码、零资源**（各约 12KB），玩法专属贴图仍压在主包里——分包机制尚未真正发挥作用，见「三·八」。
-6. ⬜ 广告位 ID（`setRewardedAdId` / `setInterstitialAdId`）与后端 API 地址（`setApiBaseUrl`）目前均未注入，广告与云存档在拿到配置前是降级状态；微信广告位需在公众平台开通流量主后创建。三个 setter 定义在 `platform/wechat.ts`，**当前全项目无人调用**。
+6. ⬜ 广告位 ID 与后端 API 地址**尚未填真实值**：注入链路已接好（`assets/scripts/env.ts` 的 `applyEnv()` 由 GameManager.onLoad 调用，内部调 `platform/wechat.ts` 的三个 setter），但 env.ts 里 `API_BASE_URL` / `REWARDED_AD_ID` / `INTERSTITIAL_AD_ID` 三个常量仍是空串占位，广告与云存档在填值前是降级状态。微信广告位需在公众平台开通流量主后创建；上线前只需改 env.ts 的常量，代码无需动。
 7. ✅ release 包体已达标（2026-08-16）：整包 2.77MB / 30MB、主包 2.75MB / 4MB，手段见「三·八」。
    ✅ 主包余量 1.25MB（贴图量化后从 0.05MB 拉开）；把玩法资源挪进分包仍是后续优化项。
    ⬜ 上线前仍需确认 release 构建勾了 MD5 Cache。

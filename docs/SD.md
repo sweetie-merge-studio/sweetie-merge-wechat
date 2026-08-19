@@ -55,14 +55,16 @@ sweetie-merge-wechat/
 
 ## 4. 分包策略
 
-> 以下为**目标设计**。当前 `project.json` 只声明了 `main`，bakery / blindbox / collection 三个 Bundle 待创建。
+> 三个玩法 Bundle 已于 2026-08-16 落地（`project.json` Bundle 声明 + `builder.json` 的
+> `bundleConfig.custom.minigame_subpackage`，构建产物含 `subpackages/`）。
+> 但目前**只有代码进了分包（各约 12KB），玩法专属贴图仍在主包**，资源迁移见 RUNBOOK「三·八」。
 
-| Bundle | 计划路径 | 优先级 | 微信压缩 | 状态 |
+| Bundle | 路径 | 优先级 | 微信压缩 | 状态 |
 |---|---|---|---|---|
 | main | `assets/` | 1 | none | ✅ 已配置 |
-| bakery | `assets/bundles/bakery/` | 2 | subpackage | ⬜ 待创建 |
-| blindbox | `assets/bundles/blindbox/` | 2 | subpackage | ⬜ 待创建 |
-| collection | `assets/bundles/collection/` | 2 | subpackage | ⬜ 待创建 |
+| bakery | `assets/bundles/bakery/` | 2 | subpackage | ✅ 已创建（资源未迁入） |
+| blindbox | `assets/bundles/blindbox/` | 2 | subpackage | ✅ 已创建（资源未迁入） |
+| collection | `assets/bundles/collection/` | 2 | subpackage | ✅ 已创建（资源未迁入） |
 
 进入对应玩法时通过 `assetManager.loadBundle('bakery', cb)` 按需加载，初次加载完成后 Cocos 会缓存。
 
