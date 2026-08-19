@@ -18,7 +18,7 @@
  *   AppID：优先读环境变量 WECHAT_APPID / DOUYIN_APPID，缺省用 project.config.json 工作区值
  */
 
-import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -144,9 +144,11 @@ function stepTypeCheck() {
 }
 
 function stepBuild(ctx) {
+  // release 包必须开 md5Cache（微信 CDN 缓存按文件名失效，不开会导致热更后玩家拿到旧资源）；
+  // debug 包保持原文件名便于对着源码断点。用 buildConfig 文件时以该文件里的配置为准。
   const buildArg = existsSync(ctx.buildConfigPath)
     ? `configPath=${ctx.buildConfigPath}`
-    : `platform=${ctx.cocosPlatform};debug=${ctx.debug}`;
+    : `platform=${ctx.cocosPlatform};debug=${ctx.debug}${ctx.debug ? '' : ';md5Cache=true'}`;
   log(`Cocos 出包（${buildArg}）… 预计 1-5 分钟`);
   const r = run(COCOS_BIN, ['--project', REPO_ROOT, '--build', buildArg], { timeout: BUILD_TIMEOUT_MS });
   if (!COCOS_EXIT_SUCCESS.has(r.code)) {
@@ -156,7 +158,21 @@ function stepBuild(ctx) {
   if (!existsSync(join(ctx.buildDir, 'game.json'))) {
     fail(`退出码 ${r.code} 但产物不完整：${ctx.buildDir} 缺 game.json`);
   }
+  stripMiniprogramRoot(ctx);
   log(`构建 ✅（exit ${r.code}，产物 ${ctx.buildDir}）`);
+}
+
+// Cocos 生成的产物 project.config.json 会带 miniprogramRoot: ""，
+// 微信开发者工具见到它就按小程序解析、去找 app.json，模拟器直接「启动失败」
+// （实测 2026-08-19，Stable 1.06.2402040）。构建后一律剔除。
+function stripMiniprogramRoot(ctx) {
+  const configPath = join(ctx.buildDir, 'project.config.json');
+  if (!existsSync(configPath)) return;
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  if (!('miniprogramRoot' in config)) return;
+  const { miniprogramRoot, ...rest } = config;
+  writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
+  log('已剔除产物 project.config.json 的 miniprogramRoot（防开发者工具误判为小程序）');
 }
 
 /**

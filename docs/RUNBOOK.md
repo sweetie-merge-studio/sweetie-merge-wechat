@@ -15,7 +15,7 @@
 | release 包体达标 | ✅ 整包 2.77MB / 30MB、主包 2.75MB / 4MB（2026-08-16 量化压图 + 裁引擎，见「三·八」） |
 | 三个玩法分包（bakery / blindbox / collection） | ✅ 已落地（代码进分包，但资源仍在主包） |
 | 浏览器实跑验证（web-mobile 包） | ✅ 画面完整、60 FPS、console 零报错（2026-08-16） |
-| 微信开发者工具安装 + 导入验证 | ⬜ 工具已安装（`/Applications/wechatwebdevtools.app`），导入验证未做（首次需微信扫码登录，只能人工操作） |
+| 微信开发者工具安装 + 导入验证 | 🟡 部分完成（2026-08-19）：工具已装、已登录，CLI 导入成功、模拟器能启动项目（修掉产物 `miniprogramRoot` 后不再报 app.json），但**测试号拉不到小游戏基础库**（gettestpublib 系统错误）→ 白屏。需真实 AppID 才能验完，见 TODO 第 2 项 |
 | 真实 AppID 申请 | ✅ 已有（存放在 `wechat/project.private.config.json`，gitignored；构建后跑 `npm run sync-appid` 注入产物，2026-08-15） |
 | 服务端 `WECHAT_APPID` / `WECHAT_APP_SECRET` | ⬜ 未配（`.env` 里没有），`/auth/wechat` 返回 503，登录走降级 |
 
@@ -275,7 +275,7 @@ pngquant --quality=65-92 --speed 1 --strip \
 ## 五、后续 TODO（按优先级）
 
 1. ✅ CLI 构建已通过（资源导入无报错、type-check 全绿、`build/wechatgame/` 产物完整，Main.scene 在主包）。
-2. ⬜ 安装微信开发者工具 → 导入 `build/wechatgame/` → 模拟器按「四」的标准验证主流程。
+2. 🟡 开发者工具导入验证推进到一半（2026-08-19）：CLI 导入 OK、项目类型误判已修（Cocos 产物 `project.config.json` 自带 `miniprogramRoot: ""`，IDE 会按小程序找 app.json 报「模拟器启动失败」——`ci/release.mjs` 构建后已自动剔除该字段）。**卡点：本机没有 `wechat/project.private.config.json`（gitignored 不随 clone 走），测试号 touristappid 拉不到小游戏基础库（IDE 日志 gettestpublib 系统错误）→ 模拟器白屏**。补齐私有配置（`{"appid": "wx真实ID"}`）后跑 `npm run sync-appid` 再按「四」验一遍。另注意本机代理（FlClash）可能拦 servicewechat.com 请求。
 3. ✅ 服务端 `/auth/wechat` 登录接口已补（sweetie-merge-server 359c1fd）：jscode2session 换 openid → JWT，`deviceId = wx_${openid}`。服务端还需配置 `WECHAT_APPID` / `WECHAT_APP_SECRET` 环境变量才生效，未配置时返回 503、客户端降级用 code 作临时标识。
 4. ✅ 真实 AppID 已落位：存放在 `wechat/project.private.config.json`（gitignored），`wechat/project.config.json` 保持占位值 `wx0000000000000000` 不动；每次构建后跑 `npm run sync-appid` 注入产物（脚本 `scripts/sync-appid.sh`，自身不含 AppID）。
 5. ✅ bakery / blindbox / collection 三个分包已落地（2026-08-16）：`assets/bundles/` 下三个页面 + `project.json` Bundle 声明 + `builder.json` 的 `bundleConfig.custom.minigame_subpackage`，构建产物含 `subpackages/`。
@@ -283,7 +283,7 @@ pngquant --quality=65-92 --speed 1 --strip \
 6. ⬜ 广告位 ID 与后端 API 地址**尚未填真实值**：注入链路已接好（`assets/scripts/env.ts` 的 `applyEnv()` 由 GameManager.onLoad 调用，内部调 `platform/wechat.ts` 的三个 setter），但 env.ts 里 `API_BASE_URL` / `REWARDED_AD_ID` / `INTERSTITIAL_AD_ID` 三个常量仍是空串占位，广告与云存档在填值前是降级状态。微信广告位需在公众平台开通流量主后创建；上线前只需改 env.ts 的常量，代码无需动。
 7. ✅ release 包体已达标（2026-08-16）：整包 2.77MB / 30MB、主包 2.75MB / 4MB，手段见「三·八」。
    ✅ 主包余量 1.25MB（贴图量化后从 0.05MB 拉开）；把玩法资源挪进分包仍是后续优化项。
-   ⬜ 上线前仍需确认 release 构建勾了 MD5 Cache。
+   ✅ MD5 Cache 已钉死（2026-08-19）：`ci/release.mjs` 非 debug 构建自动追加 `md5Cache=true`（debug 包保持原文件名便于断点）。
 
 > ⚠️ 以上「已完成」项**全部只经过 type-check 与浏览器 web 包验证**。
 > 微信端至今**没有在真实 `wx.*` 环境里跑过一次**（第 2 项未做）。
