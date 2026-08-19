@@ -44,6 +44,8 @@ export interface DailyState {
   energyAdLastAt: number;
   /** 首次建档日期 YYYY-MM-DD（埋点 is_first_day 用，跨天不重置；老存档合并时落在升级当日） */
   installDate: string;
+  /** 今日首单双倍是否已发放（留存钩子：每天第一个完成的订单奖励 ×2） */
+  firstOrderDoubled: boolean;
 }
 
 // --- 连续登录奖励表（7 天一轮，断签重置）---
@@ -86,7 +88,18 @@ export function createDailyState(): DailyState {
     energyAdCount: 0,
     energyAdLastAt: 0,
     installDate: getTodayStr(),
+    firstOrderDoubled: false,
   };
+}
+
+/** 今日首单双倍是否还可用（今天还没发放过） */
+export function isFirstOrderBonusAvailable(state: DailyState): boolean {
+  return !state.firstOrderDoubled;
+}
+
+/** 标记今日首单双倍已发放 */
+export function markFirstOrderDoubled(state: DailyState): void {
+  state.firstOrderDoubled = true;
 }
 
 /** 今天是否为安装当日（埋点 session_start 的 is_first_day） */
@@ -115,6 +128,7 @@ export function checkNewDay(state: DailyState): boolean {
   state.signedIn = false;
   state.coinRefillCount = 0;
   state.energyAdCount = 0;
+  state.firstOrderDoubled = false;
   return true;
 }
 

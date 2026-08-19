@@ -51,6 +51,8 @@ import {
   claimTaskReward,
   createDailyState,
   isFirstDay,
+  isFirstOrderBonusAvailable,
+  markFirstOrderDoubled,
   signIn,
   type DailyState,
   type LoginReward,
@@ -468,9 +470,15 @@ export class GameManager extends Component {
     const reward = completeOrder(this.order, orderId, getConfig().order.maxActive, this.level.level);
     if (!reward) return 0;
 
-    const coins = Math.max(0, Math.min(Math.floor(reward.coins ?? 0), 10000));
+    let coins = Math.max(0, Math.min(Math.floor(reward.coins ?? 0), 10000));
+    // 每日首单双倍（蓝图 01 §3 留存钩子）：当天第一个完成的订单，金币与精力 ×2
+    const firstBonus = isFirstOrderBonusAvailable(this.daily);
+    if (firstBonus) {
+      coins *= 2;
+      markFirstOrderDoubled(this.daily);
+    }
     addCoins(this.economy, coins);
-    if (reward.energy) rewardEnergy(this.energy, reward.energy);
+    if (reward.energy) rewardEnergy(this.energy, firstBonus ? reward.energy * 2 : reward.energy);
 
     // 订单经验：按难度（对齐 Web ORDER_EXP）
     const ORDER_EXP: Record<string, number> = { easy: 5, normal: 10, hard: 20, rare: 30 };
@@ -484,6 +492,7 @@ export class GameManager extends Component {
     trackEvent(Events.ORDER_COMPLETE, {
       difficulty,
       coins,
+      doubled_first: firstBonus,
       player_level: this.level.level,
       duration_s: Math.max(0, Math.round((Date.now() - startedAt) / 1000)),
     });
@@ -642,6 +651,11 @@ export class GameManager extends Component {
   /** 能量位广告当前是否可看（单日上限 + 冷却），UI 据此决定是否显示入口 */
   get energyAdAvailable(): boolean {
     return canWatchEnergyAd(this.daily, Date.now());
+  }
+
+  /** 今日首单双倍是否还可用（订单卡片预告角标用） */
+  get firstOrderBonusAvailable(): boolean {
+    return isFirstOrderBonusAvailable(this.daily);
   }
 
   /** 精力耗尽时看广告补 20 点（不受上限限制） */
