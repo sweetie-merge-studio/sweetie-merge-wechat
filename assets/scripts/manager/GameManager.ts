@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, profiler, view } from 'cc';
+import { _decorator, Component, Game, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, profiler, view } from 'cc';
 
 import type {
   BlindBoxResult,
@@ -141,6 +141,9 @@ export class GameManager extends Component {
     }
     GameManager._instance = this;
     director.addPersistRootNode(this.node);
+    // 小游戏被系统杀进程不会走 onDestroy，切后台（onHide）时必须立即落盘，
+    // 否则防抖窗口内（SAVE_DEBOUNCE_MS）的最近操作会丢
+    game.on(Game.EVENT_HIDE, this._onGameHide, this);
 
     // 强制按宽度适配：720 铺满屏宽，高度随机型延伸（构建配置的 policy 在运行时未生效，这里兜底）
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH);
@@ -183,6 +186,15 @@ export class GameManager extends Component {
     if (GameManager._instance === this) {
       GameManager._instance = null;
     }
+    game.off(Game.EVENT_HIDE, this._onGameHide, this);
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = null;
+    }
+    this.flushSave();
+  }
+
+  private _onGameHide(): void {
     if (this._saveTimer) {
       clearTimeout(this._saveTimer);
       this._saveTimer = null;
