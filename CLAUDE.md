@@ -74,10 +74,7 @@ node ci/release.mjs --build-only --debug     # 出 debug 包
 
 - 提交信息用中文，格式 `<type>: <描述>`（feat / fix / refactor / test / chore / perf / ci / docs）
 - 与抖音端 `sweetie-merge-douyin` 改同一件事时，commit message 里互相引用对方 sha
-- 这个仓库在 `sweetie-merge-studio` org 下，`gh` CLI 和 **push** 前都需要切账号：
-  ```bash
-  gh auth switch --user Noya-oneone
-  ```
-  默认账号是 KKday 的 `noya-liu`，对本仓库没权限。remote 走 HTTPS，
-  账号不对时症状是 push 报 `Repository not found`（**不是** 403，容易误判成 repo 名写错）。
-  操作完切回 `noya-liu`。
+- 这个仓库在 `sweetie-merge-studio` org 下。本机 gh 唯一账号就是 `Noya-oneone`，
+  **不需要切账号**（原 KKday 工作账号 `noya-liu` 的登录态已于 2026-08 离职时清除）。
+  remote 走 SSH。若 push 报 `Repository not found`，先查 `gh auth status` 和 SSH key，
+  别误判成 repo 名写错。
