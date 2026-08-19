@@ -67,7 +67,9 @@ import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, ty
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
 import { wechatPlatform, wechatInit } from '../platform/wechat';
+import { initAnalyticsWechat } from '../platform/analytics-wechat';
 import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
+import { Events, trackEvent } from '../core/analytics';
 import { claimAdReward, type AdRewardType } from '../api/rewards';
 import { buyEnergy, type BuyCurrency, type BuyEnergyType } from '../api/energy';
 import { getToken } from '../api/request';
@@ -153,6 +155,7 @@ export class GameManager extends Component {
     // request 的默认相对地址 '/api' 发不出去（见 env.ts）
     applyEnv();
     wechatInit();
+    initAnalyticsWechat();
     initAudio(this.node);
     playBgm();
     initOfflineQueue();
@@ -160,6 +163,7 @@ export class GameManager extends Component {
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
     this._mountUiSections();
     this.loadFromPlatform();
+    trackEvent(Events.GAME_START, { platform: this.platform.name });
     void this._loginToServer();
   }
 
@@ -452,6 +456,7 @@ export class GameManager extends Component {
     }
 
     playSfx('order_complete');
+    trackEvent(Events.ORDER_COMPLETE, { difficulty, coins, player_level: this.level.level });
     this._advanceDaily('order_2');
     this.completeTutorialStep('deliverOrder');
     this.events.emit('board:changed', this.board);
@@ -607,6 +612,7 @@ export class GameManager extends Component {
     this.events.emit('energy:changed', this.energy);
     this.scheduleSave();
     this._reportAdReward('energy');
+    trackEvent(Events.AD_WATCH, { placement: 'energy' });
     return true;
   }
 
@@ -619,6 +625,7 @@ export class GameManager extends Component {
     this.events.emit('economy:changed', this.economy);
     this.scheduleSave();
     this._reportAdReward('diamonds');
+    trackEvent(Events.AD_WATCH, { placement: 'diamonds' });
     return true;
   }
 
@@ -634,6 +641,7 @@ export class GameManager extends Component {
     const ok = await this.platform.showRewardedAd();
     if (!ok) return false;
     this._afterAdWatched();
+    trackEvent(Events.AD_WATCH, { placement: 'rare_item', item_id: itemId });
 
     const slotIdx = findEmptyCell(this.board);
     // 广告已看完，棋盘满了也不回收奖励，只是这次落不下去
@@ -656,6 +664,7 @@ export class GameManager extends Component {
     if (!ok) return false;
     addCoins(this.economy, baseCoins);
     this._afterAdWatched();
+    trackEvent(Events.AD_WATCH, { placement: 'double', coins: baseCoins });
     this.events.emit('economy:changed', this.economy);
     this.scheduleSave();
     return true;
@@ -680,6 +689,7 @@ export class GameManager extends Component {
   completeTutorialStep(stepId: TutorialStepId): void {
     if (this.tutorialStep?.id !== stepId) return;
     this.tutorial = completeStep(this.tutorial, stepId);
+    trackEvent(Events.TUTORIAL_STEP, { step_id: stepId });
     this.events.emit('tutorial:changed', this.tutorial);
     this.scheduleSave();
   }

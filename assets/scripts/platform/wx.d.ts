@@ -61,6 +61,9 @@ declare const wx: {
   getStorageSync(key: string): unknown;
   removeStorageSync(key: string): void;
 
+  // 自定义分析（事件需先在小程序后台「自定义分析」配置，未配置的会被平台静默丢弃）
+  reportAnalytics?(eventName: string, data: Record<string, string | number | boolean>): void;
+
   // 登录
   login(opts: {
     timeout?: number;
