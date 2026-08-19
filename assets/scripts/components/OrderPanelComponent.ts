@@ -4,7 +4,7 @@ import type { Order, OrderRequirement } from '../core/order';
 import { getOrderItemName, isOrderComplete } from '../core/order';
 import { getItemSpritePath } from '../data/items';
 import { GameManager } from '../manager/GameManager';
-import { hasOpenBundlePage } from './bundle-pages';
+import { hasOpenBundlePage, showPageToast } from './bundle-pages';
 import { OrderDoubleModal } from './OrderDoubleModal';
 import { TapZoneComponent } from './tap-zone';
 import { createRoundRectNode, createSpriteNode, UI_COLORS } from './ui-factory';
@@ -57,10 +57,14 @@ export class OrderPanelComponent extends Component {
   /** 翻页起点（activeOrders 中的下标） */
   private _pageStart = 0;
 
+  /** 启动挂念 toast 只提示一次 */
+  private _startHintShown = false;
+
   protected onEnable(): void {
     const gm = GameManager.instance;
     gm.events.on('orders:changed', this._onOrdersChanged);
     gm.events.on('save:loaded', this._onOrdersChanged);
+    gm.events.on('save:loaded', this._onStartHint);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     this._render(gm.order.activeOrders);
   }
@@ -69,6 +73,7 @@ export class OrderPanelComponent extends Component {
     const gm = GameManager.instance;
     gm.events.off('orders:changed', this._onOrdersChanged);
     gm.events.off('save:loaded', this._onOrdersChanged);
+    gm.events.off('save:loaded', this._onStartHint);
     input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
   }
 
@@ -104,6 +109,18 @@ export class OrderPanelComponent extends Component {
 
   private _onOrdersChanged = (): void => {
     this._render(GameManager.instance.order.activeOrders);
+  };
+
+  /** 启动挂念（蓝图 01 §3 留存钩子）：读档后若有只差 1 个物品的订单，toast 放大未完成感 */
+  private _onStartHint = (): void => {
+    if (this._startHintShown) return;
+    this._startHintShown = true;
+    const near = GameManager.instance.order.activeOrders.find(
+      o => !isOrderComplete(o) && o.requirements.filter(r => r.matchedBoardIdx == null).length === 1,
+    );
+    if (!near) return;
+    const canvas = this.node.parent;
+    if (canvas) showPageToast(canvas, '有订单只差 1 个甜品就能交付！');
   };
 
   private _render(orders: readonly Order[]): void {
@@ -153,6 +170,20 @@ export class OrderPanelComponent extends Component {
     }
 
     this._buildPageArrows(orders.length);
+
+    // 今日首单 ×2 预告角标（蓝图 01 §3；首单发放会触发订单变化重渲染，角标自然消失）
+    if (GameManager.instance.firstOrderBonusAvailable) {
+      const badge = new Node('firstOrderBadge');
+      badge.layer = this.node.layer;
+      badge.addComponent(UITransform);
+      const label = badge.addComponent(Label);
+      label.string = '今日首单奖励 ×2';
+      label.fontSize = 22;
+      label.isBold = true;
+      label.color = GREEN_DARK;
+      badge.setPosition(new Vec3(0, CARD_HEIGHT / 2 + 26, 0));
+      this.node.addChild(badge);
+    }
   }
 
   /**

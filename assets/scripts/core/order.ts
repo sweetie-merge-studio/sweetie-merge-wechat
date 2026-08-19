@@ -148,20 +148,38 @@ export function createOrderState(playerLevel: number = 1): OrderState {
   return state;
 }
 
+/**
+ * 新手期锯齿难度表（等级 1–12，蓝图 01 §2）：
+ * 每 3–4 级一个小周期，周期开头放松、周期末收紧；卡点在等级 5（第一次能量压力，
+ * 建立广告位价值感）和等级 12（留存卡点，配合品类解锁张力）。数值全部 [待测试]，
+ * 上线前自己玩一轮再定。每行 [easy, normal, hard, rare]，行内和为 1。
+ */
+const EARLY_DIFFICULTY_TABLE: Record<number, [number, number, number, number]> = {
+  1:  [1.00, 0.00, 0.00, 0.00], // 教学段：不允许卡住
+  2:  [1.00, 0.00, 0.00, 0.00],
+  3:  [0.70, 0.30, 0.00, 0.00], // 周期一：开始收紧
+  4:  [0.50, 0.50, 0.00, 0.00],
+  5:  [0.25, 0.55, 0.20, 0.00], // 卡点一：hard 首次登场，能量压力
+  6:  [0.55, 0.45, 0.00, 0.00], // 周期二：放松回血
+  7:  [0.40, 0.50, 0.10, 0.00],
+  8:  [0.30, 0.55, 0.15, 0.00],
+  9:  [0.45, 0.45, 0.10, 0.00], // 周期三：放松
+  10: [0.30, 0.50, 0.20, 0.00],
+  11: [0.20, 0.50, 0.30, 0.00],
+  12: [0.10, 0.45, 0.40, 0.05], // 卡点二：留存卡点，rare 首次露头
+};
+
 /** 根据玩家等级选择难度 */
 function pickDifficulty(playerLevel: number): OrderDifficulty {
-  // 新手期：全 easy
-  if (playerLevel <= 2) return 'easy';
-  // 成长期：easy/normal
-  if (playerLevel <= 5) return Math.random() < 0.4 ? 'easy' : 'normal';
-  // 进阶期：easy/normal/hard
-  if (playerLevel <= 12) {
+  const row = EARLY_DIFFICULTY_TABLE[playerLevel];
+  if (row) {
     const r = Math.random();
-    if (r < 0.15) return 'easy';
-    if (r < 0.6) return 'normal';
-    return 'hard';
+    if (r < row[0]) return 'easy';
+    if (r < row[0] + row[1]) return 'normal';
+    if (r < row[0] + row[1] + row[2]) return 'hard';
+    return 'rare';
   }
-  // 大师期：normal/hard/rare
+  // 13 级以后：大师期曲线（维持原参数）
   const r = Math.random();
   if (r < 0.05) return 'easy';
   if (r < 0.3) return 'normal';
