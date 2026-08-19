@@ -66,9 +66,12 @@ function run(cmd, args, { timeout = 120_000, cwd = REPO_ROOT } = {}) {
 }
 
 function dirSizeMB(dir) {
+  // 不用 readdirSync 的 recursive/parentPath：那是 Node 20+ API，Node 16 会静默降级后在 join() 崩溃
   let bytes = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-    if (entry.isFile()) bytes += statSync(join(entry.parentPath ?? entry.path, entry.name)).size;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) bytes += dirSizeMB(full) * 1024 * 1024;
+    else if (entry.isFile()) bytes += statSync(full).size;
   }
   return bytes / 1024 / 1024;
 }
@@ -161,11 +164,14 @@ function stepBuild(ctx) {
  *
  * 主包（总包减去 subpackages/）才是卡提审的那条线——两端都是 4MB。
  * 只看整包会漏判：分包没装资源时，整包很宽松而主包早已超限。
+ * 抖音特例：game.json 未声明分包时只有「整包 20MB」一条线，
+ * 所以主包判线仅在产物存在 subpackages/ 时执行（微信必分包，不受影响）。
  */
 function stepSizeCheck(ctx) {
   const totalMB = dirSizeMB(ctx.buildDir);
   const subDir = join(ctx.buildDir, 'subpackages');
-  const subMB = existsSync(subDir) ? dirSizeMB(subDir) : 0;
+  const hasSubpackages = existsSync(subDir);
+  const subMB = hasSubpackages ? dirSizeMB(subDir) : 0;
   const mainMB = totalMB - subMB;
 
   const totalMsg = `整包 ${totalMB.toFixed(1)}MB / ${ctx.totalLimitMB}MB`;
@@ -174,6 +180,8 @@ function stepSizeCheck(ctx) {
   } else {
     log(`整包 ✅ ${totalMsg}`);
   }
+
+  if (!hasSubpackages) return log(`主包判线跳过：未配置分包，按整包 ${ctx.totalLimitMB}MB 一条线`);
 
   const mainMsg = `主包 ${mainMB.toFixed(2)}MB / ${ctx.mainLimitMB}MB（分包 ${subMB.toFixed(2)}MB）`;
   if (mainMB > ctx.mainLimitMB) {
