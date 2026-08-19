@@ -69,7 +69,7 @@ import { RARE_ITEM_BY_CATEGORY, getItemById, type Category } from '../data/items
 import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
-import { wechatPlatform, wechatInit, getLaunchScene } from '../platform/wechat';
+import { wechatPlatform, wechatInit, getLaunchScene, getLastRewardedAdError } from '../platform/wechat';
 import { initAnalyticsWechat } from '../platform/analytics-wechat';
 import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
 import { Events, trackEvent } from '../core/analytics';
@@ -663,7 +663,7 @@ export class GameManager extends Component {
     if (!canWatchEnergyAd(this.daily, Date.now())) return false;
     trackEvent(Events.AD_TRIGGER, { placement: 'energy', player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
-    trackEvent(Events.AD_FINISH, { placement: 'energy', is_ended: ok });
+    trackEvent(Events.AD_FINISH, { placement: 'energy', is_ended: ok, error_code: getLastRewardedAdError() });
     if (!ok) return false;
     addEnergyUncapped(this.energy, getConfig().energy.adReward);
     recordEnergyAdShown(this.daily, Date.now());
@@ -678,7 +678,7 @@ export class GameManager extends Component {
   async watchAdForDiamonds(): Promise<boolean> {
     trackEvent(Events.AD_TRIGGER, { placement: 'diamonds', player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
-    trackEvent(Events.AD_FINISH, { placement: 'diamonds', is_ended: ok });
+    trackEvent(Events.AD_FINISH, { placement: 'diamonds', is_ended: ok, error_code: getLastRewardedAdError() });
     if (!ok) return false;
     addDiamonds(this.economy, AD_DIAMOND_REWARD);
     this._afterAdWatched();
@@ -699,7 +699,7 @@ export class GameManager extends Component {
 
     trackEvent(Events.AD_TRIGGER, { placement: 'rare_item', item_id: itemId, player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
-    trackEvent(Events.AD_FINISH, { placement: 'rare_item', is_ended: ok });
+    trackEvent(Events.AD_FINISH, { placement: 'rare_item', is_ended: ok, error_code: getLastRewardedAdError() });
     if (!ok) return false;
     this._afterAdWatched();
 
@@ -722,7 +722,7 @@ export class GameManager extends Component {
   async doubleOrderReward(baseCoins: number): Promise<boolean> {
     trackEvent(Events.AD_TRIGGER, { placement: 'double', coins: baseCoins, player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
-    trackEvent(Events.AD_FINISH, { placement: 'double', is_ended: ok });
+    trackEvent(Events.AD_FINISH, { placement: 'double', is_ended: ok, error_code: getLastRewardedAdError() });
     if (!ok) return false;
     addCoins(this.economy, baseCoins);
     this._afterAdWatched();

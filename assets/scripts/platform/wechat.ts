@@ -51,6 +51,10 @@ export function wechatInit(): void {
 let cachedRewardedAd: WxRewardedVideoAd | null = null;
 let cachedInterstitialAd: WxInterstitialAd | null = null;
 
+// 最近一次激励视频的错误码（埋点 ad_finish.error_code 用；正常播完/中途关闭为空串）
+let _lastRewardedAdError = '';
+export function getLastRewardedAdError(): string { return _lastRewardedAdError; }
+
 function getRewardedAd(): WxRewardedVideoAd {
   if (!cachedRewardedAd) {
     if (!_rewardedAdId) {
@@ -99,6 +103,7 @@ export const wechatPlatform: Platform = {
   },
 
   showRewardedAd(): Promise<boolean> {
+    _lastRewardedAdError = '';
     if (!hasWx) {
       console.warn('[wechat] 非微信环境，激励视频直接放行');
       return Promise.resolve(true);
@@ -115,11 +120,13 @@ export const wechatPlatform: Platform = {
 
       ad.onError((err: { errMsg: string; errCode: number }) => {
         console.warn('[wechat] 激励视频加载失败:', err.errMsg);
+        _lastRewardedAdError = String(err.errCode ?? err.errMsg ?? 'unknown');
         resolve(false);
       });
 
       ad.load().then(() => ad.show()).catch(() => {
         console.warn('[wechat] 激励视频展示失败，请稍后重试');
+        _lastRewardedAdError = _lastRewardedAdError || 'load_or_show_failed';
         resolve(false);
       });
     });
