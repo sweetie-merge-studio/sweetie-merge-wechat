@@ -9,6 +9,7 @@ export type TutorialStepId =
   | 'dragMerge'
   | 'firstOrder'
   | 'deliverOrder'
+  | 'energyIntro'
   | 'dailyCheckIn';
 
 /** 步骤定义 */
@@ -39,6 +40,8 @@ export const TUTORIAL_STEPS: readonly TutorialStepDef[] = [
   { id: 'dragMerge',      text: '拖到一起，合成！',           target: 'board-merge-pair',  requireAction: true },
   { id: 'firstOrder',     text: '有顾客下单啦，来看看吧！',     target: 'tutorial-order-card', requireAction: false, autoCompleteMs: 500 },
   { id: 'deliverOrder',   text: '点击领取按钮，完成订单！',    target: 'order-collect-btn', requireAction: true },
+  // 能量认知（蓝图 §1 闭环）：首单完成后提示精力机制——纯展示步骤，到点自动推进
+  { id: 'energyIntro',    text: '做甜品会消耗精力，精力会随时间慢慢恢复！', target: 'statusbar-energy', requireAction: false, autoCompleteMs: 3000 },
   { id: 'dailyCheckIn',   text: '每天签到领奖励！',           target: 'nav-daily',         requireAction: true, spotPadding: 20 },
 ];
 
