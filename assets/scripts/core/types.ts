@@ -13,7 +13,7 @@ export interface ItemDef {
   readonly emoji: string;
   readonly nextId?: ItemId;
   readonly energyCost: number;
-  readonly spawnWeight: number;
+  readonly spawnWeight: number; // 出现权重（概率由 weight / totalWeight 决定）
 }
 
 /** 棋盘格子 */
@@ -80,10 +80,11 @@ export interface SaveData {
   board: Array<{ itemId?: ItemId }>;
   energy: EnergyState;
   economy: EconomyState;
-  collection: string[];
-  collectionUnclaimed?: string[];
-  orders?: unknown;
+  collection: string[]; // Set 序列化为数组
+  collectionUnclaimed?: string[]; // 未领取钻石奖励的物品 ID
+  orders?: unknown;     // OrderState（可选，兼容旧存档）
   lastOnline: number;
+  // --- 子系统（可选，兼容旧存档） ---
   daily?: unknown;
   shop?: unknown;
   season?: unknown;
@@ -92,6 +93,7 @@ export interface SaveData {
   backpack?: unknown;
   bakery?: unknown;
   tutorial?: unknown;
+  // --- 稀有图鉴 & 盲盒 ---
   shards?: Record<string, number>;
   completedRareIds?: string[];
   blindBox?: { normalPity: number; premiumPity: number; totalOpened: number };
@@ -106,8 +108,12 @@ export interface Platform {
   load(): SaveData | null;
   showRewardedAd(): Promise<boolean>;
   showInterstitialAd(): Promise<void>;
+  /** 登录并获取用户标识（微信返回 openid，web 返回本地 ID） */
   login(): Promise<{ openid: string }>;
+  /** 分享游戏（返回是否成功） */
   share(title: string, imageUrl?: string): Promise<boolean>;
+  /** 云存档：上传 */
   cloudSave?(data: SaveData): Promise<boolean>;
+  /** 云存档：下载（返回 null 表示无云端存档） */
   cloudLoad?(): Promise<SaveData | null>;
 }
