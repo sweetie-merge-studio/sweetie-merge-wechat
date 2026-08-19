@@ -40,6 +40,12 @@ pnpm sync-appid      # scripts/sync-appid.sh
 
 改 `core/` 里的业务逻辑前先读 README 的「core/ 同步机制」一节，两端要一起改。
 
+## Cocos 编辑器会偷偷重写 `settings/v2/packages/information.json`
+
+Cocos Creator 打开工程时，若本机校验不过，会把 `customSplash.enable` 重置为 `false`
+并抹掉表单 URL 里的 `sid` 参数。**这种 diff 一律 `git checkout --` 丢弃、不要提交**——
+sid 是提交 Cocos 官方表单才拿到的凭证，提交这个"改动"等于把它弄丢。
+
 ## 不能用 Cocos 的 ScrollView
 
 本项目相机/适配调整后**节点触摸命中链路失效**（全项目点击都走
