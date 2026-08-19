@@ -21,6 +21,16 @@ const SAVE_KEY = 'sweetie_merge_save';
  */
 const hasWx = typeof wx !== 'undefined';
 
+/** 启动场景值（埋点 session_start 的 scene），取不到返回空串 */
+export function getLaunchScene(): string {
+  try {
+    if (!hasWx || typeof wx.getLaunchOptionsSync !== 'function') return '';
+    return String(wx.getLaunchOptionsSync().scene ?? '');
+  } catch {
+    return '';
+  }
+}
+
 /** 微信平台初始化（在 app 入口调用一次） */
 export function wechatInit(): void {
   if (!hasWx) {

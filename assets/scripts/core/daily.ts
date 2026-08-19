@@ -42,6 +42,8 @@ export interface DailyState {
   energyAdCount: number;
   /** 上一次能量位激励视频的时间戳 ms（冷却用，跨天不重置） */
   energyAdLastAt: number;
+  /** 首次建档日期 YYYY-MM-DD（埋点 is_first_day 用，跨天不重置；老存档合并时落在升级当日） */
+  installDate: string;
 }
 
 // --- 连续登录奖励表（7 天一轮，断签重置）---
@@ -83,7 +85,13 @@ export function createDailyState(): DailyState {
     coinRefillCount: 0,
     energyAdCount: 0,
     energyAdLastAt: 0,
+    installDate: getTodayStr(),
   };
+}
+
+/** 今天是否为安装当日（埋点 session_start 的 is_first_day） */
+export function isFirstDay(state: DailyState): boolean {
+  return state.installDate === getTodayStr();
 }
 
 /** 检查是否跨天，如果是则重置任务、更新连续登录 */

@@ -50,6 +50,7 @@ import {
   claimSingleTask,
   claimTaskReward,
   createDailyState,
+  isFirstDay,
   signIn,
   type DailyState,
   type LoginReward,
@@ -66,7 +67,7 @@ import { RARE_ITEM_BY_CATEGORY, getItemById, type Category } from '../data/items
 import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
-import { wechatPlatform, wechatInit } from '../platform/wechat';
+import { wechatPlatform, wechatInit, getLaunchScene } from '../platform/wechat';
 import { initAnalyticsWechat } from '../platform/analytics-wechat';
 import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
 import { Events, trackEvent } from '../core/analytics';
@@ -137,6 +138,9 @@ export class GameManager extends Component {
    */
   offlineReward: { duration: string; energy: number } | null = null;
 
+  /** 上次切后台的时间戳（回前台超 30s 判定为新会话，补打 session_start） */
+  private _hiddenAt = 0;
+
   protected onLoad(): void {
     if (GameManager._instance && GameManager._instance !== this) {
       this.destroy();
@@ -147,6 +151,7 @@ export class GameManager extends Component {
     // 小游戏被系统杀进程不会走 onDestroy，切后台（onHide）时必须立即落盘，
     // 否则防抖窗口内（SAVE_DEBOUNCE_MS）的最近操作会丢
     game.on(Game.EVENT_HIDE, this._onGameHide, this);
+    game.on(Game.EVENT_SHOW, this._onGameShow, this);
 
     // 强制按宽度适配：720 铺满屏宽，高度随机型延伸（构建配置的 policy 在运行时未生效，这里兜底）
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH);
@@ -164,7 +169,11 @@ export class GameManager extends Component {
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
     this._mountUiSections();
     this.loadFromPlatform();
-    trackEvent(Events.GAME_START, { platform: this.platform.name });
+    trackEvent(Events.SESSION_START, {
+      platform: this.platform.name,
+      is_first_day: isFirstDay(this.daily),
+      scene: getLaunchScene(),
+    });
     void this._loginToServer();
   }
 
@@ -192,6 +201,7 @@ export class GameManager extends Component {
       GameManager._instance = null;
     }
     game.off(Game.EVENT_HIDE, this._onGameHide, this);
+    game.off(Game.EVENT_SHOW, this._onGameShow, this);
     if (this._saveTimer) {
       clearTimeout(this._saveTimer);
       this._saveTimer = null;
@@ -200,11 +210,23 @@ export class GameManager extends Component {
   }
 
   private _onGameHide(): void {
+    this._hiddenAt = Date.now();
     if (this._saveTimer) {
       clearTimeout(this._saveTimer);
       this._saveTimer = null;
     }
     this.flushSave();
+  }
+
+  private _onGameShow(): void {
+    if (this._hiddenAt && Date.now() - this._hiddenAt > 30_000) {
+      trackEvent(Events.SESSION_START, {
+        platform: this.platform.name,
+        is_first_day: isFirstDay(this.daily),
+        scene: getLaunchScene(),
+      });
+    }
+    this._hiddenAt = 0;
   }
 
   protected update(dt: number): void {
@@ -441,6 +463,8 @@ export class GameManager extends Component {
     }
 
     const difficulty = order.difficulty;
+    const startedAt = order.createdAt;
+    const beforeIds = new Set(this.order.activeOrders.map(o => o.id));
     const reward = completeOrder(this.order, orderId, getConfig().order.maxActive, this.level.level);
     if (!reward) return 0;
 
@@ -457,7 +481,18 @@ export class GameManager extends Component {
     }
 
     playSfx('order_complete');
-    trackEvent(Events.ORDER_COMPLETE, { difficulty, coins, player_level: this.level.level });
+    trackEvent(Events.ORDER_COMPLETE, {
+      difficulty,
+      coins,
+      player_level: this.level.level,
+      duration_s: Math.max(0, Math.round((Date.now() - startedAt) / 1000)),
+    });
+    // 补充进来的新订单记 order_start，与 order_complete 组成漏斗
+    for (const o of this.order.activeOrders) {
+      if (!beforeIds.has(o.id)) {
+        trackEvent(Events.ORDER_START, { difficulty: o.difficulty, player_level: this.level.level });
+      }
+    }
     this._advanceDaily('order_2');
     this.completeTutorialStep('deliverOrder');
     this.events.emit('board:changed', this.board);
@@ -612,7 +647,9 @@ export class GameManager extends Component {
   /** 精力耗尽时看广告补 20 点（不受上限限制） */
   async watchAdForEnergy(): Promise<boolean> {
     if (!canWatchEnergyAd(this.daily, Date.now())) return false;
+    trackEvent(Events.AD_TRIGGER, { placement: 'energy', player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
+    trackEvent(Events.AD_FINISH, { placement: 'energy', is_ended: ok });
     if (!ok) return false;
     addEnergyUncapped(this.energy, getConfig().energy.adReward);
     recordEnergyAdShown(this.daily, Date.now());
@@ -620,20 +657,20 @@ export class GameManager extends Component {
     this.events.emit('energy:changed', this.energy);
     this.scheduleSave();
     this._reportAdReward('energy');
-    trackEvent(Events.AD_WATCH, { placement: 'energy' });
     return true;
   }
 
   /** 看广告得钻石 */
   async watchAdForDiamonds(): Promise<boolean> {
+    trackEvent(Events.AD_TRIGGER, { placement: 'diamonds', player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
+    trackEvent(Events.AD_FINISH, { placement: 'diamonds', is_ended: ok });
     if (!ok) return false;
     addDiamonds(this.economy, AD_DIAMOND_REWARD);
     this._afterAdWatched();
     this.events.emit('economy:changed', this.economy);
     this.scheduleSave();
     this._reportAdReward('diamonds');
-    trackEvent(Events.AD_WATCH, { placement: 'diamonds' });
     return true;
   }
 
@@ -646,10 +683,11 @@ export class GameManager extends Component {
     // 预检，避免白弹一次广告
     if (findEmptyCell(this.board) < 0) return false;
 
+    trackEvent(Events.AD_TRIGGER, { placement: 'rare_item', item_id: itemId, player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
+    trackEvent(Events.AD_FINISH, { placement: 'rare_item', is_ended: ok });
     if (!ok) return false;
     this._afterAdWatched();
-    trackEvent(Events.AD_WATCH, { placement: 'rare_item', item_id: itemId });
 
     const slotIdx = findEmptyCell(this.board);
     // 广告已看完，棋盘满了也不回收奖励，只是这次落不下去
@@ -668,11 +706,12 @@ export class GameManager extends Component {
 
   /** 订单翻倍：看广告后再发一份等额金币 */
   async doubleOrderReward(baseCoins: number): Promise<boolean> {
+    trackEvent(Events.AD_TRIGGER, { placement: 'double', coins: baseCoins, player_level: this.level.level });
     const ok = await this.platform.showRewardedAd();
+    trackEvent(Events.AD_FINISH, { placement: 'double', is_ended: ok });
     if (!ok) return false;
     addCoins(this.economy, baseCoins);
     this._afterAdWatched();
-    trackEvent(Events.AD_WATCH, { placement: 'double', coins: baseCoins });
     this.events.emit('economy:changed', this.economy);
     this.scheduleSave();
     return true;

@@ -2,6 +2,7 @@ import { _decorator, Color, Component, Node, Vec3 } from 'cc';
 
 import { GameManager } from '../manager/GameManager';
 import { getConfig } from '../core/config';
+import { Events, trackEvent } from '../core/analytics';
 import { showPageToast } from './bundle-pages';
 import {
   BTN_DOUBLE,
@@ -46,6 +47,12 @@ export class EnergyAdModal extends Component {
   protected onLoad(): void {
     buildScrim(this.node);
     const panel = buildPanel(this.node, MODAL_W, MODAL_H);
+
+    // 能量墙埋点：弹窗出现即一次能量耗尽拦截，等级分布决定调能量预算还是调难度
+    trackEvent(Events.ENERGY_EMPTY, {
+      player_level: GameManager.instance.level.level,
+      orders_active: GameManager.instance.order.activeOrders.length,
+    });
 
     const reward = getConfig().energy.adReward;
     // 频控达限（单日上限/冷却中）时不给广告入口，只留「再等等」——入口隐藏优于点了报错

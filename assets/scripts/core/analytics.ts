@@ -14,6 +14,7 @@ export const Events = {
   SELL_ITEM: 'sell_item',
 
   // 订单
+  ORDER_START: 'order_start',
   ORDER_COMPLETE: 'order_complete',
   ORDER_DOUBLE: 'order_double',
 
@@ -21,6 +22,7 @@ export const Events = {
   COIN_CHANGE: 'coin_change',
   DIAMOND_CHANGE: 'diamond_change',
   ENERGY_CHANGE: 'energy_change',
+  ENERGY_EMPTY: 'energy_empty',
 
   // 等级
   LEVEL_UP: 'level_up',
@@ -32,8 +34,10 @@ export const Events = {
   DAILY_SIGNIN: 'daily_signin',
   DAILY_TASK_CLAIM: 'daily_task_claim',
 
-  // 广告
+  // 广告（trigger=入口点击，finish=播完/中途关闭；watch 为 Web 端历史事件）
   AD_WATCH: 'ad_watch',
+  AD_TRIGGER: 'ad_trigger',
+  AD_FINISH: 'ad_finish',
 
   // 社交
   SHARE: 'share',
@@ -46,8 +50,9 @@ export const Events = {
   STASH_ITEM: 'stash_item',
   UNSTASH_ITEM: 'unstash_item',
 
-  // 会话
+  // 会话（session_start 为上线看板口径：冷启动/回前台超 30s，带 is_first_day）
   GAME_START: 'game_start',
+  SESSION_START: 'session_start',
   OFFLINE_REWARD: 'offline_reward',
 } as const;
 

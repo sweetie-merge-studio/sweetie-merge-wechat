@@ -64,6 +64,9 @@ declare const wx: {
   // 自定义分析（事件需先在小程序后台「自定义分析」配置，未配置的会被平台静默丢弃）
   reportAnalytics?(eventName: string, data: Record<string, string | number | boolean>): void;
 
+  // 启动参数（scene 场景值，埋点 session_start 用）
+  getLaunchOptionsSync?(): { scene?: number };
+
   // 登录
   login(opts: {
     timeout?: number;
