@@ -39,14 +39,14 @@ export interface LevelState {
 
 // 阶段称号前缀（每 10 级一个）
 const STAGE_TITLES = [
-  '学徒甜品师',   // Lv.1~10
-  '见习甜品师',   // Lv.11~20
-  '初级甜品师',   // Lv.21~30
-  '中级甜品师',   // Lv.31~40
-  '高级甜品师',   // Lv.41~50
-  '资深甜品师',   // Lv.51~60
-  '大师甜品师',   // Lv.61~70
-  '传奇甜品师',   // Lv.71~80
+  '甜甜萌新',   // Lv.1~10
+  '奶油学徒',   // Lv.11~20
+  '糖霜见习生', // Lv.21~30
+  '焦糖小达人', // Lv.31~40
+  '马卡龙师',   // Lv.41~50
+  '甜品行家',   // Lv.51~60
+  '甜点大师',   // Lv.61~70
+  '传奇甜品王', // Lv.71~80
 ];
 
 function stageTitle(level: number): string {
@@ -233,11 +233,11 @@ export function confirmLevelUp(state: LevelState): LevelUpResult | null {
 function applyLevelUp(state: LevelState, newLevel: number): LevelUpResult {
   const oldLevel = state.level;
   state.level = newLevel;
+  // 直接用解锁映射查 oldLevel+1 ~ newLevel 区间，避免遍历整张等级表
   const unlocked: Category[] = [];
-  for (const def of LEVEL_TABLE) {
-    if (def.level <= oldLevel) continue;
-    if (def.level > newLevel) break;
-    if (def.unlockCategory) unlocked.push(def.unlockCategory);
+  for (let lv = oldLevel + 1; lv <= newLevel; lv++) {
+    const cat = CATEGORY_UNLOCK[lv];
+    if (cat) unlocked.push(cat);
   }
   return {
     leveledUp: true,
@@ -250,11 +250,9 @@ function applyLevelUp(state: LevelState, newLevel: number): LevelUpResult {
 /** 获取当前等级已解锁的所有品类 */
 export function getUnlockedCategoriesByLevel(level: number): Set<Category> {
   const unlocked = new Set<Category>(LEVEL_1_CATEGORIES);
-  for (const def of LEVEL_TABLE) {
-    if (def.level > level) break;
-    if (def.unlockCategory) {
-      unlocked.add(def.unlockCategory);
-    }
+  // 直接用解锁映射查 ≤ level 的等级，避免遍历整张等级表
+  for (const [lvStr, cat] of Object.entries(CATEGORY_UNLOCK)) {
+    if (Number(lvStr) <= level) unlocked.add(cat);
   }
   return unlocked;
 }

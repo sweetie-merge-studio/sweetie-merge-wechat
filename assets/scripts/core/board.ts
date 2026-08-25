@@ -30,6 +30,20 @@ export function findEmptyCell(board: readonly Cell[]): number {
   return board.findIndex(c => !c.itemId);
 }
 
+/** 收集所有空格索引 */
+function collectEmptyCells(board: readonly Cell[]): number[] {
+  const empties: number[] = [];
+  for (let i = 0; i < board.length; i++) {
+    if (!board[i].itemId) empties.push(i);
+  }
+  return empties;
+}
+
+/** 棋盘索引转行列坐标 */
+function idxToRowCol(idx: number): { row: number; col: number } {
+  return { row: Math.floor(idx / BOARD_COLS), col: idx % BOARD_COLS };
+}
+
 /**
  * 找到一个更自然（偏中心）的空格放置位置。
  * 优先选择靠近棋盘中心的空格，加入少量随机偏移模拟人类放置习惯。
@@ -41,10 +55,7 @@ export function findNaturalEmptyCell(
   excludeIndices: number[] = [],
   minDistance = 0,
 ): number {
-  const empties: number[] = [];
-  for (let i = 0; i < board.length; i++) {
-    if (!board[i].itemId) empties.push(i);
-  }
+  const empties = collectEmptyCells(board);
   if (empties.length === 0) return -1;
 
   // 棋盘中心坐标
@@ -53,8 +64,7 @@ export function findNaturalEmptyCell(
 
   // 按离中心的距离排序（加随机扰动避免太规律）
   const scored = empties.map(idx => {
-    const row = Math.floor(idx / BOARD_COLS);
-    const col = idx % BOARD_COLS;
+    const { row, col } = idxToRowCol(idx);
     const distToCenter = Math.abs(row - centerRow) + Math.abs(col - centerCol);
     // 随机扰动 ±1.5，让同距离的格子不总是同一个被选中
     const jitter = (Math.random() - 0.5) * 3;
@@ -63,14 +73,12 @@ export function findNaturalEmptyCell(
 
   // 如果有最小距离要求，先过滤掉太近的格子
   if (minDistance > 0 && excludeIndices.length > 0) {
+    const exCoords = excludeIndices.map(idxToRowCol);
     const farEnough = scored.filter(({ idx }) => {
-      const row = Math.floor(idx / BOARD_COLS);
-      const col = idx % BOARD_COLS;
-      return excludeIndices.every(exIdx => {
-        const exRow = Math.floor(exIdx / BOARD_COLS);
-        const exCol = exIdx % BOARD_COLS;
-        return Math.abs(row - exRow) + Math.abs(col - exCol) >= minDistance;
-      });
+      const { row, col } = idxToRowCol(idx);
+      return exCoords.every(({ row: exRow, col: exCol }) =>
+        Math.abs(row - exRow) + Math.abs(col - exCol) >= minDistance
+      );
     });
     if (farEnough.length > 0) {
       farEnough.sort((a, b) => a.score - b.score);
@@ -203,10 +211,7 @@ export function addMotherToBoard(board: Cell[], category: string): boolean {
 
 /** 随机选择一个空格 */
 export function findRandomEmptyCell(board: readonly Cell[]): number {
-  const empties: number[] = [];
-  for (let i = 0; i < board.length; i++) {
-    if (!board[i].itemId) empties.push(i);
-  }
+  const empties = collectEmptyCells(board);
   if (empties.length === 0) return -1;
   return empties[Math.floor(Math.random() * empties.length)];
 }

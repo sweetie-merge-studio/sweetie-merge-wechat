@@ -66,6 +66,20 @@ export interface OrderState {
 
 const VALID_DIFFICULTIES: readonly string[] = ['easy', 'normal', 'hard', 'rare'];
 
+/** 难度选项顺序（与权重数组一一对应） */
+const DIFFICULTY_OPTIONS: readonly OrderDifficulty[] = ['easy', 'normal', 'hard', 'rare'];
+
+/** 按权重数组从选项中随机选取（权重和应为 1） */
+function weightedPick<T>(options: readonly T[], weights: readonly number[]): T {
+  const r = Math.random();
+  let acc = 0;
+  for (let i = 0; i < options.length; i++) {
+    acc += weights[i];
+    if (r < acc) return options[i];
+  }
+  return options[options.length - 1];
+}
+
 function isValidRequirement(value: unknown): value is OrderRequirement {
   if (!value || typeof value !== 'object') return false;
   const req = value as Record<string, unknown>;
@@ -172,19 +186,9 @@ const EARLY_DIFFICULTY_TABLE: Record<number, [number, number, number, number]> =
 /** 根据玩家等级选择难度 */
 function pickDifficulty(playerLevel: number): OrderDifficulty {
   const row = EARLY_DIFFICULTY_TABLE[playerLevel];
-  if (row) {
-    const r = Math.random();
-    if (r < row[0]) return 'easy';
-    if (r < row[0] + row[1]) return 'normal';
-    if (r < row[0] + row[1] + row[2]) return 'hard';
-    return 'rare';
-  }
-  // 13 级以后：大师期曲线（维持原参数）
-  const r = Math.random();
-  if (r < 0.05) return 'easy';
-  if (r < 0.3) return 'normal';
-  if (r < 0.7) return 'hard';
-  return 'rare';
+  if (row) return weightedPick(DIFFICULTY_OPTIONS, row);
+  // 13 级以后：大师期曲线（easy 5% / normal 25% / hard 40% / rare 30%）
+  return weightedPick(DIFFICULTY_OPTIONS, [0.05, 0.25, 0.40, 0.30]);
 }
 
 /**
@@ -229,11 +233,6 @@ function weightedPickFromPool(pool: ItemPool): ItemId {
     if (roll <= 0) return pool.ids[i];
   }
   return pool.ids[pool.ids.length - 1];
-}
-
-/** 从已解锁品类中随机选一个物品 ID（基于玩家等级，偏向高等级物品） */
-function randomItemForOrder(playerLevel: number, minLevel: number, maxLevel: number): ItemId {
-  return weightedPickFromPool(buildItemPool(playerLevel, minLevel, maxLevel));
 }
 
 /** 生成一个新订单 */

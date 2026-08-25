@@ -9,6 +9,38 @@ import type { BakeryState } from './bakery';
 import type { TutorialState } from './tutorial';
 import { getConfig } from './config';
 
+// --- 存档版本与迁移管道 ---
+
+/** 当前存档版本号。每次结构变更时 +1，并在 migrations 中追加对应迁移函数。 */
+export const SAVE_VERSION = 1;
+
+/** 单步迁移：把版本 N 的存档原始对象转换为版本 N+1。输入输出都是未校验的原始对象。 */
+type Migration = (data: Record<string, unknown>) => Record<string, unknown>;
+
+/**
+ * 迁移函数列表，索引 = 源版本号。
+ * migrations[0] 把 v0（无 version 字段的旧存档）升级到 v1。
+ * 新增版本时在末尾追加，不要修改已有函数（旧存档依赖它们逐级升级）。
+ */
+const migrations: readonly Migration[] = [
+  // v0 → v1：首次引入版本号，无结构变更，仅打标记
+  (data) => ({ ...data, version: 1 }),
+];
+
+/**
+ * 对原始存档数据执行迁移管道，把旧版本逐级升级到当前版本。
+ * 不做结构校验——校验由 deserialize 负责。
+ */
+export function migrateSave(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  let data = { ...(raw as Record<string, unknown>) };
+  const fromVersion = typeof data.version === 'number' ? data.version : 0;
+  for (let i = fromVersion; i < migrations.length; i++) {
+    data = migrations[i](data);
+  }
+  return data;
+}
+
 export interface SerializeInput {
   board: readonly Cell[];
   energy: EnergyState;
@@ -48,6 +80,7 @@ export function serialize(
   },
 ): SaveData {
   return {
+    version: SAVE_VERSION,
     board: board.map(c => ({ itemId: c.itemId })),
     energy: { ...energy },
     economy: { ...economy },
@@ -76,10 +109,11 @@ function safeNum(val: unknown, fallback: number, min?: number): number {
   return min === undefined ? n : Math.max(min, n);
 }
 
-/** 反序列化存档数据，失败返回 null */
+/** 反序列化存档数据，失败返回 null。先执行版本迁移，再做结构校验。 */
 export function deserialize(raw: unknown): SaveData | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const data = raw as Record<string, unknown>;
+  const migrated = migrateSave(raw);
+  if (!migrated) return null;
+  const data = migrated;
 
   if (!Array.isArray(data.board)) return null;
   if (!data.energy || typeof data.energy !== 'object') return null;
@@ -165,12 +199,19 @@ function safeLevel(val: unknown): unknown | undefined {
   return val;
 }
 
-/** 校验 backpack 子系统必需字段 */
-function safeBackpack(val: unknown): unknown | undefined {
+/** 校验 backpack 子系统必需字段，返回字段完整的新对象（避免原始对象缺字段导致展开覆盖为 undefined） */
+function safeBackpack(val: unknown): BackpackState | undefined {
   if (!val || typeof val !== 'object') return undefined;
   const b = val as Record<string, unknown>;
   if (!Array.isArray(b.items) || typeof b.maxSlots !== 'number') return undefined;
-  return val;
+  const unlockedSlots = typeof b.unlockedSlots === 'number' ? b.unlockedSlots : b.maxSlots;
+  return {
+    items: b.items.filter((i): i is { itemId: string; count: number } =>
+      i && typeof i === 'object' && typeof (i as { itemId?: unknown }).itemId === 'string'
+    ),
+    maxSlots: b.maxSlots,
+    unlockedSlots,
+  };
 }
 
 /** 校验 bakery 子系统必需字段 */
