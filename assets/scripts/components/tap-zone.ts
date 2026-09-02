@@ -69,7 +69,7 @@ export class TapZoneComponent extends Component {
     input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
-    if (this.debugName) console.info(`[tap] ENABLE ${this.debugName}`);
+    if (this.debugName) console.info(`[tap] ENABLE ${this.debugName} parent=${this.node.parent?.name} active=${this.node.activeInHierarchy}`);
   }
 
   protected onDisable(): void {
@@ -77,6 +77,7 @@ export class TapZoneComponent extends Component {
     input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
     this._startedInside = false;
+    if (this.debugName) console.info(`[tap] DISABLE ${this.debugName} parent=${this.node.parent?.name}`);
   }
 
   /** 触点（UI 世界坐标）是否落在本节点矩形内（锚点感知） */
@@ -85,39 +86,35 @@ export class TapZoneComponent extends Component {
     if (this._blockedByModal()) return false;
     const ui = this.node.getComponent(UITransform);
     if (!ui) return false;
-    const pos = event.getUILocation();
-    const touchWorld = new Vec3(pos.x, pos.y, 0);
 
-    // 方式 A：convertToNodeSpaceAR（原方式，依赖节点世界变换矩阵正确）
-    const local = ui.convertToNodeSpaceAR(touchWorld);
-    const hitA = (
+    // 同时取 UI 坐标与世界坐标：web 平台下深层节点（弹窗→滚动区→卡片）
+    // 可能出现 getUILocation 与 worldPosition 坐标系不一致，两种都试，任一命中即算。
+    const posUI = event.getUILocation();
+    const posW = event.getLocation();
+
+    const inLocalRect = (local: Vec3): boolean => (
       local.x >= -ui.anchorX * ui.width &&
       local.x <= (1 - ui.anchorX) * ui.width &&
       local.y >= -ui.anchorY * ui.height &&
       local.y <= (1 - ui.anchorY) * ui.height
     );
 
-    // 方式 B：世界坐标矩形（备用，不依赖 convertToNodeSpaceAR）
-    // 适配 FIXED_WIDTH 下 Widget 对齐与 UITransform 不同步导致的"看得见点不到"
+    // 方式 A：convertToNodeSpaceAR（两种坐标都试）
+    const localUI = ui.convertToNodeSpaceAR(new Vec3(posUI.x, posUI.y, 0));
+    const localW = ui.convertToNodeSpaceAR(new Vec3(posW.x, posW.y, 0));
+    const hitA = inLocalRect(localUI) || inLocalRect(localW);
+
+    // 方式 B：世界坐标矩形（两种坐标都试，不依赖 convertToNodeSpaceAR）
     const wp = this.node.worldPosition;
     const scale = this.node.worldScale;
     const w = ui.width * scale.x;
     const h = ui.height * scale.y;
     const left = wp.x - ui.anchorX * w;
     const bottom = wp.y - ui.anchorY * h;
-    const hitB = (
-      pos.x >= left && pos.x <= left + w &&
-      pos.y >= bottom && pos.y <= bottom + h
+    const inWorldRect = (px: number, py: number): boolean => (
+      px >= left && px <= left + w && py >= bottom && py <= bottom + h
     );
-
-    if (this.debugName && !hitA && hitB) {
-      console.info(
-        `[tap] HIT-FALLBACK ${this.debugName}`,
-        `ui=(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`,
-        `local=(${local.x.toFixed(0)},${local.y.toFixed(0)}) out-of-range`,
-        `worldRect=(${left.toFixed(0)},${bottom.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
-      );
-    }
+    const hitB = inWorldRect(posUI.x, posUI.y) || inWorldRect(posW.x, posW.y);
 
     return hitA || hitB;
   }

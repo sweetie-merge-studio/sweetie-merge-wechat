@@ -305,7 +305,6 @@ export class OrderPanelComponent extends Component {
         if (!order) return;
         if (isOrderComplete(order)) {
           // 已完成订单：先记录匹配物品位置，播放物品飞行动画，再领取奖励
-          // (逻辑见下方)
           const card = this._content?.children[this._startCardIdx];
           const matchedItems: { idx: number; itemId: string }[] = [];
           for (const req of order.requirements) {
@@ -335,6 +334,16 @@ export class OrderPanelComponent extends Component {
             // 翻倍弹窗（微信端保留）
             if (canvas) OrderDoubleModal.show(canvas, coins);
           }
+        } else {
+          // 未完成订单：点击需求物品图标 → 弹出合成路径
+          const reqIdx = this._reqIndexAt(event, endIdx);
+          if (reqIdx >= 0) {
+            const req = order.requirements[reqIdx];
+            if (req && !req.fulfilled) {
+              const canvas = this.node.parent;
+              if (canvas) showSynthesisPathModal(canvas, req.itemId);
+            }
+          }
         }
       }
     }
@@ -363,6 +372,41 @@ export class OrderPanelComponent extends Component {
       const centerX = originX + i * step;
       if (Math.abs(local.x - centerX) <= CARD_WIDTH / 2 && Math.abs(local.y) <= CARD_HEIGHT / 2) {
         return i;
+      }
+    }
+    return -1;
+  }
+
+  /** 根据触点位置和卡片下标，算出命中的需求物品下标（未命中返回 -1） */
+  private _reqIndexAt(event: EventTouch, cardIdx: number): number {
+    const content = this._content;
+    if (!content?.isValid) return -1;
+    const card = content.children[cardIdx];
+    if (!card?.isValid) return -1;
+    const cardUi = card.getComponent(UITransform);
+    if (!cardUi) return -1;
+
+    const order = this._visibleOrders[cardIdx];
+    if (!order) return -1;
+
+    const p = event.getUILocation();
+    const local = cardUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+
+    const reqs = order.requirements;
+    const n = reqs.length;
+    const totalW = n * REQ_ICON_SIZE + (n - 1) * REQ_GAP;
+    const startX = -totalW / 2 + REQ_ICON_SIZE / 2;
+
+    // 扩大点击区域，手指点击更友好
+    const hitPad = 10;
+
+    for (let r = 0; r < n; r++) {
+      const x = startX + r * (REQ_ICON_SIZE + REQ_GAP);
+      if (
+        Math.abs(local.x - x) <= REQ_ICON_SIZE / 2 + hitPad &&
+        Math.abs(local.y - REQ_ICON_Y) <= REQ_ICON_SIZE / 2 + hitPad
+      ) {
+        return r;
       }
     }
     return -1;

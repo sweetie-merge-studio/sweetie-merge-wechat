@@ -1,4 +1,4 @@
-import { _decorator, BlockInputEvents, Color, Component, EventTouch, Graphics, Input, Label, Node, RichText, Sprite, UITransform, Vec3, Widget, input } from 'cc';
+import { _decorator, BlockInputEvents, Color, Component, EventTouch, Graphics, Input, Label, Node, Sprite, UITransform, Vec3, Widget, input } from 'cc';
 
 import { TapZoneComponent, popModalLayer, pushModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
@@ -296,7 +296,7 @@ export interface ModalShell {
   panel: Node;
   body: Node;
   titleLabel: Label;
-  subtitleLabel: RichText | null;
+  subtitleLabel: Label | null;
   close: () => void;
 }
 
@@ -495,7 +495,6 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   const closeTap = close.addComponent(TapZoneComponent);
   closeTap.debugName = `modal-close-${opts.title}`;
   closeTap.onTap = () => {
-    console.info(`[modal-close] onTap fired, root.valid=${root.isValid}`);
     try {
       playSfx('popup_close');
     } catch (e) {
@@ -507,7 +506,7 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   close.setSiblingIndex(header.children.length - 1);
 
   // 副标题气泡
-  let subtitleLabel: RichText | null = null;
+  let subtitleLabel: Label | null = null;
   const hasSubtitle = opts.subtitle !== undefined;
   if (hasSubtitle) {
     cursor -= SHELL_GAP_HEADER_SUB;
@@ -535,12 +534,13 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
     subLabelNode.addComponent(UITransform).setContentSize(subW - 24, SHELL_SUBTITLE_H);
     subLabelNode.setPosition(new Vec3(0, -18, 0));
     sub.addChild(subLabelNode);
-    subtitleLabel = subLabelNode.addComponent(RichText);
-    subtitleLabel.string = `<color=#8B6B4A>${opts.subtitle}</color>`;
+    subtitleLabel = subLabelNode.addComponent(Label);
+    subtitleLabel.string = opts.subtitle;
     subtitleLabel.fontSize = SHELL_SUBTITLE_FONT;
     subtitleLabel.lineHeight = SHELL_SUBTITLE_H;
-    subtitleLabel.horizontalAlign = RichText.HorizontalAlign.CENTER;
-    subtitleLabel.maxWidth = subW - 24;
+    subtitleLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+    subtitleLabel.color = new Color(139, 107, 74, 255);
+    fontManager.applyFont(subtitleLabel);
   }
 
   // 内容区
@@ -561,20 +561,38 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - CLOSE_TAP / 2, headerY, 0));
   close.setSiblingIndex(panel.children.length - 1);
 
-  // 独立全局监听：先用无坐标检测的方式确认事件能收到，
-  // 后续再收紧到关闭按钮矩形范围。
+  // 独立全局监听兜底：TapZone 走组件 onEnable/onDisable 生命周期，
+  // close 节点经历 setParent(header→panel) 后在部分平台可能出现监听时序问题；
+  // 这里用与节点生命周期无关的全局监听做双保险。
+  // 命中检测用 convertToNodeSpaceAR（与 BoardComponent._touchToLocal 同款），
+  // 不直接比 worldPosition vs getUILocation，避免坐标系/适配差异导致 inClose 恒 false。
   const closeUi = close.getComponent(UITransform)!;
+  let _diagCloseTaps = 0;
   input.on(Input.EventType.TOUCH_END, (event: EventTouch) => {
     if (!root.isValid) return;
-    const pos = event.getLocation();
-    const wp = close.worldPosition;
-    const halfW = closeUi.width / 2;
-    const halfH = closeUi.height / 2;
+    _diagCloseTaps++;
+    const pos = event.getUILocation();
+    const touchWorld = new Vec3(pos.x, pos.y, 0);
+    const local = closeUi.convertToNodeSpaceAR(touchWorld);
     const inClose = (
-      pos.x >= wp.x - halfW && pos.x <= wp.x + halfW &&
-      pos.y >= wp.y - halfH && pos.y <= wp.y + halfH
+      local.x >= -closeUi.anchorX * closeUi.width &&
+      local.x <= (1 - closeUi.anchorX) * closeUi.width &&
+      local.y >= -closeUi.anchorY * closeUi.height &&
+      local.y <= (1 - closeUi.anchorY) * closeUi.height
     );
-    console.info('[modal-close] TOUCH_END', 'pos=', pos, 'closeWorld=', wp, 'inClose=', inClose);
+    const wp = close.worldPosition;
+    const canvas = root.parent;
+    const canvasUi = canvas?.getComponent(UITransform);
+    console.info(
+      `[modal-close-diag] #${_diagCloseTaps} title="${opts.title}"`,
+      `ui=(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`,
+      `closeWorld=(${wp.x.toFixed(0)},${wp.y.toFixed(0)})`,
+      `local=(${local.x.toFixed(1)},${local.y.toFixed(1)})`,
+      `size=${closeUi.width}x${closeUi.height} anchor=(${closeUi.anchorX},${closeUi.anchorY})`,
+      `active=${close.activeInHierarchy} parent=${close.parent?.name}`,
+      `canvasSize=${canvasUi?.width ?? '?'}x${canvasUi?.height ?? '?'}`,
+      `inClose=${inClose}`,
+    );
     if (inClose) {
       try { playSfx('popup_close'); } catch (e) {}
       root.destroy();

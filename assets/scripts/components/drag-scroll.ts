@@ -57,19 +57,23 @@ export class DragScrollComponent extends Component {
     this._dragging = false;
   }
 
-  /** 触点是否落在可视区内 */
+  /** 触点是否落在可视区内（UI 坐标与世界坐标都试，任一命中即算） */
   private _inView(event: EventTouch): boolean {
     if (!this.node.activeInHierarchy) return false;
     const ui = this.node.getComponent(UITransform);
     if (!ui) return false;
-    const p = event.getUILocation();
-    const local = ui.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
-    return (
-      local.x >= -ui.anchorX * ui.width &&
-      local.x <= (1 - ui.anchorX) * ui.width &&
-      local.y >= -ui.anchorY * ui.height &&
-      local.y <= (1 - ui.anchorY) * ui.height
-    );
+    const inRect = (x: number, y: number): boolean => {
+      const local = ui.convertToNodeSpaceAR(new Vec3(x, y, 0));
+      return (
+        local.x >= -ui.anchorX * ui.width &&
+        local.x <= (1 - ui.anchorX) * ui.width &&
+        local.y >= -ui.anchorY * ui.height &&
+        local.y <= (1 - ui.anchorY) * ui.height
+      );
+    };
+    const pUI = event.getUILocation();
+    const pW = event.getLocation();
+    return inRect(pUI.x, pUI.y) || inRect(pW.x, pW.y);
   }
 
   /** 可滚动的最大偏移（内容比可视区多出来的部分） */

@@ -14,50 +14,50 @@ const { ccclass } = _decorator;
 const CONTENT_W = 620;
 
 /* ═══ 签到便利贴 ═══ */
-const STICKY_W = 138;
-const STICKY_H = 118;
+const STICKY_W = 124;
+const STICKY_H = 96;
 const STICKY_GAP = 14;
 /** 图钉直径 */
-const PIN_SIZE = 20;
+const PIN_SIZE = 22;
 /** 便利贴圆角 */
 const STICKY_RADIUS = 10;
 
-/** 便利贴底色（未签到时，按天依次） */
+/** 便利贴底色（未签到时，按天依次，半透明模拟便签纸感） */
 const STICKY_COLORS: readonly Color[] = [
-  new Color(220, 232, 245, 255), // D1 浅蓝
-  new Color(245, 224, 232, 255), // D2 浅粉
-  new Color(224, 240, 224, 255), // D3 浅绿
-  new Color(240, 232, 216, 255), // D4 米白
-  new Color(232, 224, 245, 255), // D5 浅紫
-  new Color(216, 240, 224, 255), // D6 浅绿
-  new Color(220, 232, 245, 255), // D7 浅蓝
+  new Color(210, 226, 244, 210), // D1 浅蓝
+  new Color(244, 218, 230, 210), // D2 浅粉
+  new Color(214, 236, 214, 210), // D3 浅绿
+  new Color(238, 232, 214, 210), // D4 米白
+  new Color(226, 218, 242, 210), // D5 浅紫
+  new Color(208, 234, 218, 210), // D6 浅绿
+  new Color(210, 226, 244, 210), // D7 浅蓝
 ];
 /** 已签到底色（绿） */
 const SIGNED_BG = new Color(126, 191, 108, 255);
-/** 今日未签到高亮描边（金） */
-const TODAY_STROKE = new Color(232, 168, 62, 255);
+/** 今日未签到高亮描边（橙） */
+const TODAY_STROKE = new Color(232, 150, 40, 255);
 /** 图钉色 */
-const PIN_COLOR = new Color(196, 160, 106, 255);
-const PIN_HIGHLIGHT = new Color(240, 220, 180, 255);
+const PIN_COLOR = new Color(196, 156, 96, 255);
+const PIN_HIGHLIGHT = new Color(245, 224, 180, 255);
+const PIN_SHADOW = new Color(140, 100, 60, 100);
 
 /* ═══ 任务行 ═══ */
-const TASK_H = 100;
-const TASK_GAP = 12;
-const TASK_RADIUS = 16;
+const TASK_H = 84;
+const TASK_GAP = 10;
+const TASK_RADIUS = 14;
 
 /** 进度条尺寸 */
-const BAR_W = 110;
-const BAR_H = 14;
-const BAR_BG = new Color(224, 213, 192, 255);
+const BAR_W = 84;
+const BAR_H = 12;
+const BAR_BG = new Color(220, 210, 190, 255);
 const BAR_FG = new Color(126, 191, 108, 255);
 
 /** 领取按钮 */
-const BTN_W = 108;
-const BTN_H = 52;
-const BTN_RADIUS = 26;
+const BTN_W = 96;
+const BTN_H = 46;
+const BTN_RADIUS = 23;
 const BTN_CLAIM = new Color(232, 168, 62, 255);
 const BTN_CLAIM_TOP = new Color(245, 190, 80, 255);
-const BTN_DIM = new Color(180, 160, 140, 255);
 
 /** 金币图标尺寸 */
 const COIN_SIZE = 26;
@@ -77,7 +77,7 @@ export class DailyPageComponent extends Component {
 
     const content = new Node('content');
     content.layer = this.node.layer;
-    content.addComponent(UITransform).setContentSize(CONTENT_W, 860);
+    content.addComponent(UITransform).setContentSize(CONTENT_W, 800);
     this.node.addChild(content);
     addAlignedWidget(content, { isAlignTop: true, top: 8 });
     this._content = content;
@@ -98,11 +98,81 @@ export class DailyPageComponent extends Component {
     const top = (content.getComponent(UITransform)?.height ?? 0) / 2;
 
     let y = top;
-    y = this._buildSignIn(content, y);
+    // 副标题气泡（buildModalShell 的 subtitle 走 RichText 有兼容问题，这里用普通 Label 画）
     y -= 28;
+    this._buildSubtitle(content, y);
+    y -= 20;
+    y = this._buildSignIn(content, y);
+    y -= 20;
     y = this._buildTasks(content, y, gm.daily.tasks);
-    y -= 16;
+    y -= 12;
     this._buildChest(content, y);
+  }
+
+  /** 副标题气泡："做完任务有甜甜的奖励哦" */
+  private _buildSubtitle(parent: Node, y: number): void {
+    const w = 400;
+    const h = 36;
+    const node = new Node('subtitle');
+    node.layer = parent.layer;
+    node.addComponent(UITransform).setContentSize(w, h);
+    node.setPosition(new Vec3(0, y, 0));
+    parent.addChild(node);
+
+    const g = node.addComponent(Graphics);
+    g.fillColor = new Color(255, 248, 238, 255);
+    g.roundRect(-w / 2, -h / 2, w, h, h / 2);
+    g.fill();
+    // 完整虚线描边（上下直线 + 左右半圆）
+    g.lineWidth = 2;
+    g.strokeColor = new Color(212, 184, 150, 255);
+    this._drawDashedCapsule(g, w, h, 7, 4);
+    g.stroke();
+
+    this._buildLabel(node, '做完任务有甜甜的奖励哦', 18, new Vec3(0, 0, 0), {
+      color: new Color(139, 107, 74, 255), width: w - 24,
+    });
+  }
+
+  /** 画虚线胶囊形描边（参数化遍历周长，按 dash/gap 模式画线段） */
+  private _drawDashedCapsule(g: Graphics, w: number, h: number, dash: number, gap: number): void {
+    const r = h / 2;
+    const straight = w - 2 * r;
+    const halfCircle = Math.PI * r;
+    const perimeter = 2 * straight + 2 * halfCircle;
+
+    // 周长参数 t → 坐标 (x, y)
+    const pointAt = (t: number): [number, number] => {
+      if (t < straight) {
+        return [-w / 2 + r + t, h / 2]; // 上边
+      }
+      t -= straight;
+      if (t < halfCircle) {
+        const a = Math.PI / 2 - t / r; // 右半圆，从 π/2 到 -π/2
+        return [w / 2 - r + r * Math.cos(a), r * Math.sin(a)];
+      }
+      t -= halfCircle;
+      if (t < straight) {
+        return [w / 2 - r - t, -h / 2]; // 下边
+      }
+      t -= straight;
+      const a = -Math.PI / 2 - t / r; // 左半圆，从 -π/2 到 -3π/2
+      return [-w / 2 + r + r * Math.cos(a), r * Math.sin(a)];
+    };
+
+    const period = dash + gap;
+    for (let start = 0; start < perimeter; start += period) {
+      const end = Math.min(start + dash, perimeter);
+      // 每段虚线用多段小直线近似（圆弧部分）
+      const steps = Math.max(2, Math.ceil((end - start) / 3));
+      const [sx, sy] = pointAt(start);
+      g.moveTo(sx, sy);
+      for (let i = 1; i <= steps; i++) {
+        const t = start + (end - start) * (i / steps);
+        const [px, py] = pointAt(t);
+        g.lineTo(px, py);
+      }
+    }
   }
 
   // ── 连续签到（便利贴） ──
@@ -175,6 +245,9 @@ export class DailyPageComponent extends Component {
     cell.layer = parent.layer;
     cell.addComponent(UITransform).setContentSize(STICKY_W, STICKY_H);
     cell.setPosition(pos);
+    // 便利贴错落旋转，模拟真实便签感
+    const rotations = [-2.5, 2, -1.5, 2.5, 1.5, -2, 1];
+    cell.angle = rotations[(reward.day - 1) % rotations.length];
     parent.addChild(cell);
 
     const isToday = reward.day === todayDay;
@@ -195,31 +268,34 @@ export class DailyPageComponent extends Component {
       g.stroke();
     }
 
-    // 图钉（顶部中央）
-    const pinY = STICKY_H / 2 - 4;
+    // 图钉（顶部中央，带阴影和高光）
+    const pinY = STICKY_H / 2 - 2;
+    g.fillColor = PIN_SHADOW;
+    g.circle(1, pinY - 2, PIN_SIZE / 2);
+    g.fill();
     g.fillColor = PIN_COLOR;
     g.circle(0, pinY, PIN_SIZE / 2);
     g.fill();
     g.fillColor = PIN_HIGHLIGHT;
-    g.circle(-3, pinY + 3, PIN_SIZE / 4);
+    g.circle(-3, pinY + 3, PIN_SIZE / 3.5);
     g.fill();
 
     if (signed) {
       // 已签到：白色对勾
-      this._buildLabel(cell, '✓', 44, new Vec3(0, -4, 0), {
-        bold: true, color: new Color(255, 255, 255, 255), width: 60,
+      this._buildLabel(cell, '✓', 40, new Vec3(0, -2, 0), {
+        bold: true, color: new Color(255, 255, 255, 255), width: 56,
       });
-      this._buildLabel(cell, `第${reward.day}天`, 16, new Vec3(0, -STICKY_H / 2 + 18, 0), {
+      this._buildLabel(cell, `第${reward.day}天`, 15, new Vec3(0, -STICKY_H / 2 + 16, 0), {
         color: new Color(255, 255, 255, 220), width: STICKY_W - 10,
       });
     } else {
       // 未签到：第X天 + 奖励
-      this._buildLabel(cell, `第${reward.day}天`, 20, new Vec3(0, STICKY_H / 2 - 34, 0), {
+      this._buildLabel(cell, `第${reward.day}天`, 19, new Vec3(0, STICKY_H / 2 - 30, 0), {
         bold: true,
-        color: isTodayUnsigned ? new Color(180, 100, 20, 255) : new Color(111, 74, 57, 200),
+        color: isTodayUnsigned ? new Color(190, 96, 16, 255) : new Color(111, 74, 57, 200),
         width: STICKY_W - 10,
       });
-      this._buildLabel(cell, reward.label, 15, new Vec3(0, -10, 0), {
+      this._buildLabel(cell, reward.label, 14, new Vec3(0, -8, 0), {
         color: new Color(111, 74, 57, 180), width: STICKY_W - 12,
       });
     }
@@ -236,11 +312,11 @@ export class DailyPageComponent extends Component {
   // ── 每日小任务 ──
 
   private _buildTasks(parent: Node, top: number, tasks: readonly DailyTask[]): number {
-    this._buildLabel(parent, '每日小任务', 24, new Vec3(-CONTENT_W / 2 + 8, top - 18, 0), {
+    this._buildLabel(parent, '每日小任务', 23, new Vec3(-CONTENT_W / 2 + 8, top - 16, 0), {
       bold: true, anchorLeft: true, width: 200,
     });
 
-    let y = top - 44;
+    let y = top - 38;
     tasks.forEach(task => {
       const row = new Node(`task_${task.id}`);
       row.layer = parent.layer;
@@ -255,36 +331,38 @@ export class DailyPageComponent extends Component {
 
       const done = task.current >= task.target;
       const claimable = done && !task.claimed;
-      const textX = -CONTENT_W / 2 + 24;
+      const textX = -CONTENT_W / 2 + 22;
 
       // 任务名
-      this._buildLabel(row, task.label, 24, new Vec3(textX, 18, 0), {
+      this._buildLabel(row, task.label, 23, new Vec3(textX, 15, 0), {
         bold: true, anchorLeft: true, width: CONTENT_W - BTN_W - 80,
       });
 
       // 金币图标 + 奖励
-      this._buildCoinIcon(row, new Vec3(textX + 8, -18, 0));
-      this._buildLabel(row, `${task.rewardCoins} 金币`, 18, new Vec3(textX + 8 + COIN_SIZE + 6, -18, 0), {
+      this._buildCoinIcon(row, new Vec3(textX + 6, -15, 0));
+      this._buildLabel(row, `${task.rewardCoins} 金币`, 17, new Vec3(textX + 6 + COIN_SIZE + 5, -15, 0), {
         anchorLeft: true, color: new Color(180, 130, 40, 255), width: 120,
       });
 
       if (claimable) {
         // 可领取：橙色按钮
-        this._buildClaimButton(row, new Vec3(CONTENT_W / 2 - BTN_W / 2 - 20, 0, 0), '领取', () => {
+        this._buildClaimButton(row, new Vec3(CONTENT_W / 2 - BTN_W / 2 - 18, 0, 0), '领取', () => {
           const coins = GameManager.instance.claimDailyTask(task.id);
           if (coins != null) showPageToast(this.node, `领取成功 +${coins} 金币`);
         });
       } else if (task.claimed) {
         // 已领取：灰色文字
-        this._buildLabel(row, '已领取', 20, new Vec3(CONTENT_W / 2 - 60, 0, 0), {
+        this._buildLabel(row, '已领取', 19, new Vec3(CONTENT_W / 2 - 55, 0, 0), {
           color: new Color(160, 140, 120, 255), width: 100,
         });
       } else {
-        // 未完成：进度条 + 进度数字
-        const barX = CONTENT_W / 2 - BAR_W / 2 - 24;
+        // 未完成：进度条 + 进度数字（整体右对齐，避免数字溢出）
+        const numW = 52;
+        const numCenterX = CONTENT_W / 2 - 16 - numW / 2;
+        const barX = numCenterX - numW / 2 - 10 - BAR_W / 2;
         this._buildProgressBar(row, new Vec3(barX, 0, 0), task.current, task.target);
-        this._buildLabel(row, `${task.current}/${task.target}`, 18, new Vec3(barX + BAR_W / 2 + 40, 0, 0), {
-          color: new Color(139, 99, 64, 255), width: 70,
+        this._buildLabel(row, `${task.current}/${task.target}`, 17, new Vec3(numCenterX, 0, 0), {
+          color: new Color(139, 99, 64, 255), width: numW,
         });
       }
 
@@ -309,12 +387,12 @@ export class DailyPageComponent extends Component {
     g.roundRect(-CONTENT_W / 2, -TASK_H / 2, CONTENT_W, TASK_H, TASK_RADIUS);
     g.fill();
 
-    const textX = -CONTENT_W / 2 + 24;
-    this._buildLabel(row, '全勤小宝箱', 24, new Vec3(textX, 18, 0), {
+    const textX = -CONTENT_W / 2 + 22;
+    this._buildLabel(row, '全勤小宝箱', 23, new Vec3(textX, 15, 0), {
       bold: true, anchorLeft: true, width: 260,
     });
-    this._buildCoinIcon(row, new Vec3(textX + 8, -18, 0));
-    this._buildLabel(row, '200 金币', 18, new Vec3(textX + 8 + COIN_SIZE + 6, -18, 0), {
+    this._buildCoinIcon(row, new Vec3(textX + 6, -15, 0));
+    this._buildLabel(row, '200 金币', 17, new Vec3(textX + 6 + COIN_SIZE + 5, -15, 0), {
       anchorLeft: true, color: new Color(180, 130, 40, 255), width: 120,
     });
 
@@ -322,16 +400,16 @@ export class DailyPageComponent extends Component {
     const claimable = allTasksDone(gm.daily) && allClaimed && !gm.daily.tasksClaimed;
 
     if (gm.daily.tasksClaimed) {
-      this._buildLabel(row, '已领取', 20, new Vec3(CONTENT_W / 2 - 60, 0, 0), {
+      this._buildLabel(row, '已领取', 19, new Vec3(CONTENT_W / 2 - 55, 0, 0), {
         color: new Color(160, 140, 120, 255), width: 100,
       });
     } else if (claimable) {
-      this._buildClaimButton(row, new Vec3(CONTENT_W / 2 - BTN_W / 2 - 20, 0, 0), '领取', () => {
+      this._buildClaimButton(row, new Vec3(CONTENT_W / 2 - BTN_W / 2 - 18, 0, 0), '领取', () => {
         const coins = GameManager.instance.claimDailyChest();
         if (coins != null) showPageToast(this.node, `宝箱开启 +${coins} 金币`);
       });
     } else {
-      this._buildLabel(row, '未完成', 20, new Vec3(CONTENT_W / 2 - 60, 0, 0), {
+      this._buildLabel(row, '未完成', 19, new Vec3(CONTENT_W / 2 - 55, 0, 0), {
         color: new Color(160, 140, 120, 255), width: 100,
       });
     }
@@ -384,7 +462,7 @@ export class DailyPageComponent extends Component {
     g.roundRect(-BTN_W / 2 + 2, 0, BTN_W - 4, BTN_H / 2 - 2, BTN_RADIUS / 2);
     g.fill();
 
-    this._buildLabel(btn, text, 22, new Vec3(0, 0, 0), {
+    this._buildLabel(btn, text, 20, new Vec3(0, 0, 0), {
       bold: true, color: new Color(255, 255, 255, 255), width: BTN_W - 8,
     });
 

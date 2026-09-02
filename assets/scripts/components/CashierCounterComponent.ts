@@ -2,7 +2,7 @@ import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransfor
 
 import { getLevelDef, getLevelExpInfo, getPendingLevelUpCost } from '../core/level';
 import { GameManager } from '../manager/GameManager';
-import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
+import { showPageToast } from './bundle-pages';
 import { LevelModal } from './LevelModal';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode } from './ui-factory';
@@ -26,9 +26,6 @@ const CASHIER_H = 100;
 const INFO_PANEL_H = 84;
 const INFO_PAD_X = 10;
 const INFO_PAD_Y = 8;
-/** 烘焙坊按钮 */
-const BTN_W = 92;
-const BTN_H = 52;
 /** Lv 胶囊徽章 */
 const LV_BADGE_W = 60;
 const LV_BADGE_H = 28;
@@ -59,10 +56,6 @@ const EXP_FILL = new Color(245, 166, 35, 255);
 const EXP_TEXT_COLOR = new Color(168, 136, 106, 255);
 /** 营业中标签底 #4CAF50 */
 const STATUS_TAG_BG = new Color(76, 175, 80, 255);
-/** 烘焙坊按钮橙（保留原有色调） */
-const BAKERY_BTN_BG = new Color(240, 166, 74, 255);
-/** 烘焙坊按钮描边 */
-const BAKERY_BTN_BORDER = new Color(139, 94, 60, 255);
 /** 灯泡光晕 */
 const LAMP_GLOW = new Color(255, 235, 160, 180);
 const LAMP_GLOW_OUTER = new Color(255, 220, 120, 60);
@@ -136,12 +129,8 @@ export class CashierCounterComponent extends Component {
       new Vec3(0, 0, 0),
     );
 
-    // ── 右侧：烘焙坊按钮（微信端保留） ──
-    this._buildBakeryButton(counter);
-
-    // ── 中间：信息面板（收银机和烘焙坊按钮之间） ──
-    const bakeryBtnX = PANEL_W / 2 - BTN_W / 2 - 12;
-    const infoRight = bakeryBtnX - BTN_W / 2 - 16;
+    // ── 中间：信息面板（收银机和台面右边缘之间） ──
+    const infoRight = PANEL_W / 2 - 20;
     const infoLeft = cashierX + CASHIER_W / 2 + 20;
     const infoPanelW = infoRight - infoLeft;
 
@@ -366,36 +355,6 @@ export class CashierCounterComponent extends Component {
       } else {
         playSfx('error');
         showPageToast(this.node, '金币不足哦');
-      }
-    };
-  }
-
-  /** 烘焙坊入口按钮 */
-  private _buildBakeryButton(parent: Node): void {
-    const btn = new Node('bakeryButton');
-    btn.layer = parent.layer;
-    btn.addComponent(UITransform).setContentSize(BTN_W, BTN_H);
-    btn.setPosition(new Vec3(PANEL_W / 2 - BTN_W / 2 - 12, 0, 0));
-    parent.addChild(btn);
-
-    const g = btn.addComponent(Graphics);
-    g.fillColor = BAKERY_BTN_BG;
-    g.roundRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 14);
-    g.fill();
-    g.lineWidth = 2.5;
-    g.strokeColor = BAKERY_BTN_BORDER;
-    g.roundRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 14);
-    g.stroke();
-    // 顶部高光
-    g.fillColor = new Color(255, 255, 255, 60);
-    g.roundRect(-BTN_W / 2 + 3, BTN_H / 2 - 6, BTN_W - 6, 4, 2);
-    g.fill();
-
-    btn.addComponent(TapZoneComponent).onTap = () => {
-      playSfx('click');
-      const canvas = this.node.parent;
-      if (canvas && !hasOpenBundlePage(canvas)) {
-        openBundlePage(canvas, 'bakery', 'BakeryPage');
       }
     };
   }

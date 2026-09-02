@@ -49,7 +49,7 @@ interface TabPage {
 const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: TabPage }> = [
   {
     key: 'daily', label: '每日', enLabel: 'Daily',
-    page: { bundle: 'daily', component: 'DailyPageComponent', modal: { width: 660, height: 1060, title: '每日小任务', iconPath: 'sprites/ui/nav/nav_daily', subtitle: '做完任务有甜甜的奖励哦' } },
+    page: { bundle: 'daily', component: 'DailyPageComponent', modal: { width: 660, height: 1060, title: '每日小任务', iconPath: 'sprites/ui/nav/nav_daily' } },
   },
   {
     key: 'collection', label: '图鉴', enLabel: 'Journal',
