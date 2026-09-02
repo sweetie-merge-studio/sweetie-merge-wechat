@@ -464,11 +464,12 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   titleLabel.verticalAlign = Label.VerticalAlign.CENTER;
   titleLabel.overflow = Label.Overflow.SHRINK;
 
-  // 关闭按钮
+  // 关闭按钮（点击热区 80x80，可见圆形 56px 居中）
+  const CLOSE_TAP = 80;
   const close = new Node(SHELL_CLOSE_NAME);
   close.layer = header.layer;
-  close.addComponent(UITransform).setContentSize(SHELL_CLOSE_SIZE, SHELL_CLOSE_SIZE);
-  close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - SHELL_CLOSE_SIZE / 2, 0, 0));
+  close.addComponent(UITransform).setContentSize(CLOSE_TAP, CLOSE_TAP);
+  close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - CLOSE_TAP / 2, 0, 0));
   header.addChild(close);
   const cg = close.addComponent(Graphics);
   const cr = SHELL_CLOSE_SIZE / 2;
@@ -491,13 +492,17 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   closeLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
   closeLabel.verticalAlign = Label.VerticalAlign.CENTER;
   fontManager.applyFont(closeLabel);
-  close.addComponent(TapZoneComponent).onTap = () => {
-    if (root.isValid) {
+  const closeTap = close.addComponent(TapZoneComponent);
+  closeTap.debugName = `modal-close-${opts.title}`;
+  closeTap.onTap = () => {
+    console.info(`[modal-close] onTap fired, root.valid=${root.isValid}`);
+    try {
       playSfx('popup_close');
-      root.destroy();
+    } catch (e) {
+      console.warn('[modal-close] playSfx failed:', e);
     }
+    if (root.isValid) root.destroy();
   };
-  close.getComponent(TapZoneComponent)!.debugName = `modal-close-${opts.title}`;
   // 关闭按钮提到最上层，避免被面板内后添加的内容盖住
   close.setSiblingIndex(header.children.length - 1);
 
