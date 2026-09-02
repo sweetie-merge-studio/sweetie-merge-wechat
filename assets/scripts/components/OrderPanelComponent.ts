@@ -1,71 +1,118 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Input, Label, Node, Prefab, UIOpacity, UITransform, Vec3, input, instantiate } from 'cc';
 
 import type { Order, OrderRequirement } from '../core/order';
-import { getOrderItemName, isOrderComplete } from '../core/order';
+import { isOrderComplete } from '../core/order';
 import { getItemSpritePath } from '../data/items';
 import { GameManager } from '../manager/GameManager';
 import { hasOpenBundlePage, showPageToast } from './bundle-pages';
 import { OrderDoubleModal } from './OrderDoubleModal';
 import { TapZoneComponent } from './tap-zone';
-import { createRoundRectNode, createSpriteNode, UI_COLORS } from './ui-factory';
+import { createSpriteNode, UI_COLORS } from './ui-factory';
+import { fontManager } from '../core/font-manager';
 
 const { ccclass, property } = _decorator;
 
-/** 竖版木牌卡片（对齐 Web 版 OrderPanel.vue .card：order-card 背景图、约 3:4 比例） */
-const CARD_WIDTH = 160;
-const CARD_HEIGHT = 214;
-const CARD_GAP = 14;
-/** 一屏最多展示的卡片数（超出部分用左右箭头翻页，对齐 Web 版横向滚动） */
-const MAX_VISIBLE_CARDS = 4;
+/* ═══ 尺寸（严格对齐 Web 版 OrderPanel.vue，按 140px 卡宽等比缩放） ═══ */
+const CARD_WIDTH = 140;
+const CARD_HEIGHT = 187; // 3:4
+const CARD_GAP = 7;
+/** 可视区宽度（小于节点宽度，左右留边距） */
+const VIEW_W = 680;
+/** 拖拽超过这个距离才算滚动，避免和点击抢事件 */
+const DRAG_THRESHOLD = 8;
 
-/** 翻页箭头圆钮 */
-const ARROW_SIZE = 44;
-/** 箭头相对面板中心的横向位置（贴在四张卡片外侧） */
-const ARROW_OFFSET_X = (CARD_WIDTH + CARD_GAP) * MAX_VISIBLE_CARDS / 2 - 6;
+/** 滚动箭头按钮（对齐 web 版 .scroll-arrow） */
+const ARROW_SIZE = 36;
+const ARROW_BG = new Color(240, 232, 216, 255);
+const ARROW_BORDER = new Color(212, 196, 168, 255);
+const ARROW_COLOR = new Color(160, 120, 76, 255);
+const ARROW_SHADOW = new Color(80, 50, 20, 51);
+const ARROW_SHADOW_OFFSET_Y = -2;
+const ARROW_SHADOW_BLUR = 8;
+const ARROW_SHADOW_LAYERS = 6;
 
-/** 顾客头像：用各品类的拟人角色图当顾客（对齐设计稿的头像位） */
-const AVATAR_SIZE = 54;
-const AVATAR_Y = 66;
+/** 顾客头像 — web 5.5dvh=44.7px × 1.724 = 77px，距顶 32.95px → y=37 */
+const AVATAR_SIZE = 77;
+const AVATAR_Y = 37;
 /** 头像取自这些品类的 Lv.3 角色图，按订单 id 稳定散列，同一单头像不跳变 */
 const AVATAR_POOL = ['cake', 'icecream', 'drink', 'fruit', 'candy', 'cookie'] as const;
 
-/** 需求物品图标 */
-const REQ_ICON_SIZE = 50;
-const REQ_ICON_Y = 14;
-const REQ_NAME_Y = -18;
-/** 双需求时图标列的横向偏移 */
-const REQ_COL_OFFSET = 38;
+/** 需求物品图标 — web 3dvh=24.4px × 1.724 = 42px，距顶 71.5px → y=-30 */
+const REQ_ICON_SIZE = 42;
+const REQ_ICON_Y = -30;
+const REQ_GAP = 10;
 
-/** 完成态绿色（勾徽章 / 领取按钮） */
-const GREEN = new Color(88, 168, 92, 255);
-const GREEN_DARK = new Color(46, 125, 50, 255);
+/** 金币奖励药丸 — web 约20px高 × 1.724 = 34px，距底 6px → y=-66 */
+const REWARD_PILL_H = 34;
+const REWARD_PILL_Y = -66;
+const REWARD_COIN_SIZE = 30;
+const REWARD_TEXT_SIZE = 18;
+
+/** 领取按钮 — web 约24px高 × 1.724 = 40px，距底 6px → y=-66 */
+const COLLECT_BTN_W = 100;
+const COLLECT_BTN_H = 40;
+const COLLECT_BTN_Y = -66;
+const COLLECT_BTN_FONT = 21;
+
+/** 完成打勾徽章 — web 16px × 1.724 = 28px */
+const CHECK_BADGE_SIZE = 28;
+
+/* ═══ 颜色（严格取自 Web 版 CSS） ═══ */
+const REWARD_PILL_TOP = new Color(255, 246, 224, 255);
+const REWARD_PILL_BOT = new Color(245, 230, 200, 255);
+const REWARD_PILL_BORDER = new Color(212, 184, 130, 255);
+const REWARD_TEXT_COLOR = new Color(139, 107, 42, 255);
+const COLLECT_BTN_TOP = new Color(255, 179, 71, 255);
+const COLLECT_BTN_BOT = new Color(232, 146, 42, 255);
+const COLLECT_BTN_BORDER = new Color(184, 114, 42, 255);
+const COLLECT_BTN_HIGHLIGHT = new Color(255, 255, 255, 77);
+const CHECK_BG = new Color(102, 187, 106, 255);
 
 /**
- * 订单面板：渲染当前 activeOrders 列表。
+ * 订单面板（对齐 Web 版 OrderPanel.vue）：
+ * 横向可滚动的木牌卡片列表，每张卡片含顾客头像 + 需求物品小图标 + 金币药丸 / 橙色领取按钮。
  *
- * 每个订单实例化一份 OrderCard.prefab，运行时套用木牌背景图；
- * 卡片内容全部代码构建：需求物品图标（完成打勾）+ 奖励行 / 领取按钮。
+ * 输入处理：全局 input 监听实现「横向拖拽 + 点击」二合一，
+ * 拖拽超 8px 算滚动，否则算点击。
  */
 @ccclass('OrderPanelComponent')
 export class OrderPanelComponent extends Component {
   @property({ type: Prefab, tooltip: 'OrderCard.prefab — 单张订单卡片' })
   orderCardPrefab: Prefab | null = null;
 
-  /** 当前渲染的订单（下标与卡片位置一致，供点击命中） */
+  /** 滚动内容容器（所有卡片挂在这里） */
+  private _content: Node | null = null;
+  /** 可视区 */
+  private _viewport: Node | null = null;
+  /** 左右滚动箭头 */
+  private _arrowLeft: Node | null = null;
+  private _arrowRight: Node | null = null;
+  /** 当前渲染的订单列表 */
   private _visibleOrders: Order[] = [];
-
-  /** 翻页起点（activeOrders 中的下标） */
-  private _pageStart = 0;
-
   /** 启动挂念 toast 只提示一次 */
   private _startHintShown = false;
+
+  // 拖拽状态
+  private _dragging = false;
+  private _dragMoved = false;
+  private _startX = 0;
+  private _startContentX = 0;
+  private _startCardIdx = -1;
 
   protected onEnable(): void {
     const gm = GameManager.instance;
     gm.events.on('orders:changed', this._onOrdersChanged);
     gm.events.on('save:loaded', this._onOrdersChanged);
     gm.events.on('save:loaded', this._onStartHint);
+
+    // 全局 input 监听：自行做 hitTest，拖拽/点击二合一
+    input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.on(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
+    input.on(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
+
+    this._ensureViewport();
+    this._buildArrowButtons();
     this._render(gm.order.activeOrders);
   }
 
@@ -74,44 +121,227 @@ export class OrderPanelComponent extends Component {
     gm.events.off('orders:changed', this._onOrdersChanged);
     gm.events.off('save:loaded', this._onOrdersChanged);
     gm.events.off('save:loaded', this._onStartHint);
+    input.off(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.off(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
+    input.off(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
   }
 
-  /** 点击已完成的订单卡 → 领取（全局输入 + 自算命中，与棋盘同方案） */
-  private _onTouchEnd(event: EventTouch): void {
-    if (this._visibleOrders.length === 0) return;
-    // 分包页面开着时不吃触摸（全局输入不受页面 BlockInputEvents 拦截）
-    const canvas = this.node.parent;
-    if (canvas && hasOpenBundlePage(canvas)) return;
-    const ui = this.node.getComponent(UITransform);
-    if (!ui) return;
-    const pos = event.getUILocation();
-    const local = ui.convertToNodeSpaceAR(new Vec3(pos.x, pos.y, 0));
-    if (Math.abs(local.y) > CARD_HEIGHT / 2) return;
-    // 翻页箭头压在卡片行同高度，交给它自己的 TapZone 处理，这里不抢
-    if (Math.abs(local.x) > ARROW_OFFSET_X - ARROW_SIZE / 2) return;
+  /** 确保可视区 + 内容容器已创建（只建一次） */
+  private _ensureViewport(): void {
+    if (this._viewport && this._viewport.isValid) return;
 
+    const nodeUi = this.node.getComponent(UITransform);
+    const nodeW = nodeUi?.width ?? 720;
+    const nodeH = nodeUi?.height ?? 200;
+
+    const viewport = new Node('viewport');
+    viewport.layer = this.node.layer;
+    viewport.addComponent(UITransform).setContentSize(VIEW_W, nodeH);
+    this.node.addChild(viewport);
+    this._viewport = viewport;
+
+    const content = new Node('content');
+    content.layer = viewport.layer;
+    content.addComponent(UITransform);
+    viewport.addChild(content);
+    this._content = content;
+  }
+
+  /** 构建左右滚动箭头按钮 */
+  private _buildArrowButtons(): void {
+    const y = 0;
+    this._arrowLeft = this._createArrowButton('arrowLeft', true);
+    this._arrowLeft.setPosition(new Vec3(-VIEW_W / 2 + ARROW_SIZE / 2 - 2, y, 0));
+    this.node.addChild(this._arrowLeft);
+    this._arrowRight = this._createArrowButton('arrowRight', false);
+    this._arrowRight.setPosition(new Vec3(VIEW_W / 2 - ARROW_SIZE / 2 + 2, y, 0));
+    this.node.addChild(this._arrowRight);
+  }
+
+  /** 创建单个箭头按钮（带多层阴影模拟高斯模糊） */
+  private _createArrowButton(name: string, isLeft: boolean): Node {
+    const btn = new Node(name);
+    btn.layer = this.node.layer;
+    btn.addComponent(UITransform).setContentSize(ARROW_SIZE, ARROW_SIZE);
+
+    const g = btn.addComponent(Graphics);
+    const baseR = ARROW_SIZE / 2;
+    const sy = ARROW_SHADOW_OFFSET_Y;
+    for (let i = 0; i < ARROW_SHADOW_LAYERS; i++) {
+      const t = i / (ARROW_SHADOW_LAYERS - 1);
+      const r = baseR + t * ARROW_SHADOW_BLUR;
+      const alpha = Math.floor(ARROW_SHADOW.a * Math.exp(-t * t * 2.2));
+      if (alpha <= 0) continue;
+      g.fillColor = new Color(ARROW_SHADOW.r, ARROW_SHADOW.g, ARROW_SHADOW.b, alpha);
+      g.circle(0, sy, r);
+      g.fill();
+    }
+
+    g.fillColor = ARROW_BG;
+    g.circle(0, 0, ARROW_SIZE / 2);
+    g.fill();
+    g.lineWidth = 1.5;
+    g.strokeColor = ARROW_BORDER;
+    g.circle(0, 0, ARROW_SIZE / 2);
+    g.stroke();
+
+    const arrowX = isLeft ? 2 : -2;
+    const arrowNode = new Node('arrow');
+    arrowNode.layer = btn.layer;
+    arrowNode.addComponent(UITransform).setContentSize(ARROW_SIZE, ARROW_SIZE);
+    arrowNode.setPosition(new Vec3(arrowX, 3, 0));
+    btn.addChild(arrowNode);
+    const arrowLabel = arrowNode.addComponent(Label);
+    arrowLabel.string = isLeft ? '‹' : '›';
+    arrowLabel.fontSize = 26;
+    arrowLabel.lineHeight = ARROW_SIZE;
+    arrowLabel.isBold = true;
+    arrowLabel.color = ARROW_COLOR;
+    arrowLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+    arrowLabel.verticalAlign = Label.VerticalAlign.CENTER;
+    arrowLabel.overflow = Label.Overflow.NONE;
+
+    btn.addComponent(TapZoneComponent).onTap = () => {
+      const step = CARD_WIDTH + CARD_GAP;
+      this._scrollBy(isLeft ? step : -step);
+    };
+
+    return btn;
+  }
+
+  /** 滚动指定距离 */
+  private _scrollBy(delta: number): void {
+    if (!this._content) return;
+    const x = this._content.position.x + delta;
+    const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
+    this._content.setPosition(new Vec3(clamped, 0, 0));
+    this._updateArrowVisibility();
+  }
+
+  /** 根据当前滚动位置更新箭头可见性 */
+  private _updateArrowVisibility(): void {
+    if (!this._content) return;
+    const x = this._content.position.x;
+    const canScrollLeft = x < this._halfScroll - 0.5;
+    const canScrollRight = x > -this._halfScroll + 0.5;
+    if (this._arrowLeft) this._arrowLeft.active = canScrollLeft;
+    if (this._arrowRight) this._arrowRight.active = canScrollRight;
+  }
+
+  /** 内容总宽度 */
+  private get _contentWidth(): number {
+    const n = this._visibleOrders.length;
+    return n > 0 ? n * CARD_WIDTH + (n - 1) * CARD_GAP : 0;
+  }
+
+  /** 最大可滚动偏移 */
+  private get _maxScroll(): number {
+    return Math.max(0, this._contentWidth - VIEW_W);
+  }
+
+  /** 半幅滚动 */
+  private get _halfScroll(): number {
+    return this._maxScroll / 2;
+  }
+
+  /** 触点是否在可视区内（全局 input 需自行做命中检测） */
+  private _hitTest(event: EventTouch): boolean {
+    if (this._visibleOrders.length === 0) return false;
+    const canvas = this.node.parent;
+    if (canvas && hasOpenBundlePage(canvas)) return false;
+    const vp = this._viewport;
+    if (!vp?.isValid) return false;
+    const ui = vp.getComponent(UITransform);
+    if (!ui) return false;
+    const p = event.getUILocation();
+    const local = ui.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    return (
+      local.x >= -ui.width / 2 &&
+      local.x <= ui.width / 2 &&
+      local.y >= -ui.height / 2 &&
+      local.y <= ui.height / 2
+    );
+  }
+
+  private _onTouchStart(event: EventTouch): void {
+    if (!this._hitTest(event)) return;
+    this._dragging = false;
+    this._dragMoved = false;
+    this._startX = event.getUILocation().x;
+    this._startContentX = this._content?.position.x ?? 0;
+    this._startCardIdx = this._cardIndexAt(event);
+  }
+
+  private _onTouchMove(event: EventTouch): void {
+    if (this._startCardIdx < 0 && !this._dragMoved) return;
+    const dx = event.getUILocation().x - this._startX;
+    if (!this._dragMoved && Math.abs(dx) < DRAG_THRESHOLD) return;
+    this._dragMoved = true;
+    this._dragging = true;
+    if (this._content) {
+      const clamped = Math.min(Math.max(this._startContentX + dx, -this._halfScroll), this._halfScroll);
+      this._content.setPosition(new Vec3(clamped, 0, 0));
+      this._updateArrowVisibility();
+    }
+  }
+
+  private _onTouchEnd(event: EventTouch): void {
+    if (this._startCardIdx < 0 && !this._dragMoved) return;
+    if (this._dragging) {
+      if (this._content) {
+        const x = this._content.position.x;
+        const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
+        this._content.setPosition(new Vec3(clamped, 0, 0));
+        this._updateArrowVisibility();
+      }
+    } else {
+      // 轻点：按下和抬起在同一张卡片上
+      const endIdx = this._cardIndexAt(event);
+      if (this._startCardIdx >= 0 && this._startCardIdx === endIdx) {
+        const order = this._visibleOrders[this._startCardIdx];
+        if (!order) return;
+        if (isOrderComplete(order)) {
+          const coins = GameManager.instance.collectOrder(order.id);
+          const canvas = this.node.parent;
+          if (coins > 0 && canvas) OrderDoubleModal.show(canvas, coins);
+        }
+      }
+    }
+    this._dragging = false;
+    this._dragMoved = false;
+    this._startCardIdx = -1;
+  }
+
+  private _onTouchCancel(): void {
+    this._dragging = false;
+    this._dragMoved = false;
+    this._startCardIdx = -1;
+  }
+
+  /** 根据触点位置算出命中的卡片下标（基于 content 当前位移） */
+  private _cardIndexAt(event: EventTouch): number {
+    const content = this._content;
+    if (!content?.isValid) return -1;
+    const contentUi = content.getComponent(UITransform);
+    if (!contentUi) return -1;
+    const p = event.getUILocation();
+    const local = contentUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
     const step = CARD_WIDTH + CARD_GAP;
-    const originX = -((this._visibleOrders.length - 1) * step) / 2;
+    const originX = -this._contentWidth / 2 + CARD_WIDTH / 2;
     for (let i = 0; i < this._visibleOrders.length; i++) {
       const centerX = originX + i * step;
-      if (Math.abs(local.x - centerX) > CARD_WIDTH / 2) continue;
-      const order = this._visibleOrders[i];
-      if (isOrderComplete(order)) {
-        const coins = GameManager.instance.collectOrder(order.id);
-        // 基础奖励已入账，弹窗只问要不要看广告再拿一份等额金币
-        const canvas = this.node.parent;
-        if (coins > 0 && canvas) OrderDoubleModal.show(canvas, coins);
+      if (Math.abs(local.x - centerX) <= CARD_WIDTH / 2 && Math.abs(local.y) <= CARD_HEIGHT / 2) {
+        return i;
       }
-      return;
     }
+    return -1;
   }
 
   private _onOrdersChanged = (): void => {
     this._render(GameManager.instance.order.activeOrders);
   };
 
-  /** 启动挂念（蓝图 01 §3 留存钩子）：读档后若有只差 1 个物品的订单，toast 放大未完成感 */
   private _onStartHint = (): void => {
     if (this._startHintShown) return;
     this._startHintShown = true;
@@ -124,26 +354,36 @@ export class OrderPanelComponent extends Component {
   };
 
   private _render(orders: readonly Order[]): void {
-    this.node.removeAllChildren();
-    if (!this.orderCardPrefab) return;
+    this._ensureViewport();
+    const content = this._content;
+    if (!content || !this.orderCardPrefab) return;
 
-    // 翻页：订单数变化后把起点夹回合法范围，避免删单后停在空页
-    const maxStart = Math.max(0, orders.length - MAX_VISIBLE_CARDS);
-    this._pageStart = Math.min(Math.max(0, this._pageStart), maxStart);
+    content.removeAllChildren();
+    this._visibleOrders = [...orders];
 
-    const visible = orders.slice(this._pageStart, this._pageStart + MAX_VISIBLE_CARDS);
-    this._visibleOrders = [...visible];
+    const totalW = this._contentWidth;
+    content.getComponent(UITransform)?.setContentSize(Math.max(totalW, VIEW_W), CARD_HEIGHT);
+
+    // 初始位置：第一张卡片完整显示在左边缘
+    if (Math.abs(content.position.x) < 0.5) {
+      content.setPosition(new Vec3(this._halfScroll, 0, 0));
+    } else {
+      const x = content.position.x;
+      const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
+      if (Math.abs(clamped - x) > 0.1) content.setPosition(new Vec3(clamped, 0, 0));
+    }
+
     const step = CARD_WIDTH + CARD_GAP;
-    const originX = -((visible.length - 1) * step) / 2;
+    const originX = -totalW / 2 + CARD_WIDTH / 2;
 
-    for (let i = 0; i < visible.length; i++) {
-      const order = visible[i];
+    for (let i = 0; i < orders.length; i++) {
+      const order = orders[i];
       const card = instantiate(this.orderCardPrefab);
       card.getComponent(UITransform)?.setContentSize(CARD_WIDTH, CARD_HEIGHT);
       card.setPosition(new Vec3(originX + i * step, 0, 0));
-      this.node.addChild(card);
+      content.addChild(card);
 
-      // 旧版 prefab 自带的文字 Label 不再使用，全部内容代码构建
+      // 隐藏 prefab 自带的旧 Label
       const reqLabel = card.getChildByName('reqLabel');
       if (reqLabel) reqLabel.active = false;
       const rewardLabel = card.getChildByName('rewardLabel');
@@ -152,208 +392,242 @@ export class OrderPanelComponent extends Component {
       // 木牌背景图垫底
       createSpriteNode('cardBg', card, 0, CARD_WIDTH, CARD_HEIGHT, 'sprites/bg/order-card');
 
+      // 顾客头像（品类拟人图，无 customer 资源时的降级方案）
       this._buildAvatar(card, order);
 
-      // 需求物品：图标 +（完成时）打勾徽章 + 名称
-      const reqs = order.requirements;
-      const colStep = reqs.length > 1 ? (REQ_COL_OFFSET * 2) / (reqs.length - 1) : 0;
-      const colOrigin = reqs.length > 1 ? -REQ_COL_OFFSET : 0;
-      for (let r = 0; r < reqs.length; r++) {
-        this._buildRequirement(card, reqs[r], colOrigin + colStep * r);
-      }
+      // 需求物品小图标（无名称文字）
+      this._buildRequirements(card, order.requirements);
 
+      // 底部：金币药丸 或 领取按钮
       if (isOrderComplete(order)) {
         this._buildCollectButton(card);
       } else {
-        this._buildRewardRows(card, order);
+        this._buildRewardPill(card, order);
       }
     }
 
-    this._buildPageArrows(orders.length);
+    // 夹取当前滚动位置并更新箭头可见性
+    const x = content.position.x;
+    const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
+    if (clamped !== x) content.setPosition(new Vec3(clamped, 0, 0));
+    this._updateArrowVisibility();
 
-    // 今日首单 ×2 预告角标（蓝图 01 §3；首单发放会触发订单变化重渲染，角标自然消失）
+    // 今日首单 ×2 预告角标
     if (GameManager.instance.firstOrderBonusAvailable) {
       const badge = new Node('firstOrderBadge');
       badge.layer = this.node.layer;
       badge.addComponent(UITransform);
       const label = badge.addComponent(Label);
-      label.string = '今日首单奖励 ×2';
-      label.fontSize = 22;
+      label.string = '今日首单 ×2 奖励';
+      label.fontSize = 20;
       label.isBold = true;
-      label.color = GREEN_DARK;
-      badge.setPosition(new Vec3(0, CARD_HEIGHT / 2 + 26, 0));
+      label.color = new Color(46, 125, 50, 255);
+      badge.setPosition(new Vec3(0, CARD_HEIGHT / 2 + 24, 0));
       this.node.addChild(badge);
     }
+
+    fontManager.applyFontToTree(this.node);
   }
 
-  /**
-   * 顾客头像：奶油色圆底 + 品类拟人角色图。
-   *
-   * 没有专门的顾客立绘素材，复用各品类 Lv.3 的拟人角色（同一套画风），
-   * 品类按订单 id 稳定散列，避免每次重渲染换脸。
-   */
+  /** 顾客头像：品类拟人角色图（微信端无 customer 立绘资源），纯贴图对齐抖音端风格 */
   private _buildAvatar(card: Node, order: Order): void {
-    const holder = new Node('avatar');
-    holder.layer = card.layer;
-    holder.addComponent(UITransform).setContentSize(AVATAR_SIZE, AVATAR_SIZE);
-    holder.setPosition(new Vec3(0, AVATAR_Y, 0));
-    card.addChild(holder);
-
-    const g = holder.addComponent(Graphics);
-    g.fillColor = UI_COLORS.pillBg;
-    g.circle(0, 0, AVATAR_SIZE / 2);
-    g.fill();
-    g.lineWidth = 3;
-    g.strokeColor = UI_COLORS.pillBorder;
-    g.circle(0, 0, AVATAR_SIZE / 2);
-    g.stroke();
-
     let hash = 0;
     for (let i = 0; i < order.id.length; i++) hash = (hash * 31 + order.id.charCodeAt(i)) | 0;
     const cat = AVATAR_POOL[Math.abs(hash) % AVATAR_POOL.length];
     createSpriteNode(
-      'avatarFace', holder, holder.children.length,
-      AVATAR_SIZE - 12, AVATAR_SIZE - 12, `sprites/items/${cat}/${cat}_3`,
+      'avatar', card, card.children.length,
+      AVATAR_SIZE, AVATAR_SIZE,
+      `sprites/items/${cat}/${cat}_3`,
+      new Vec3(0, AVATAR_Y, 0),
     );
   }
 
-  /** 左右翻页箭头：仅在订单数超过一屏时出现，到头的一侧隐藏 */
-  private _buildPageArrows(total: number): void {
-    if (total <= MAX_VISIBLE_CARDS) return;
-    const maxStart = total - MAX_VISIBLE_CARDS;
-    if (this._pageStart > 0) this._buildArrow(-1);
-    if (this._pageStart < maxStart) this._buildArrow(1);
-  }
+  /** 需求物品：小图标 + 完成打勾（无名称文字） */
+  private _buildRequirements(card: Node, reqs: OrderRequirement[]): void {
+    const n = reqs.length;
+    const totalW = n * REQ_ICON_SIZE + (n - 1) * REQ_GAP;
+    const startX = -totalW / 2 + REQ_ICON_SIZE / 2;
 
-  private _buildArrow(dir: -1 | 1): void {
-    const pos = new Vec3(dir * ARROW_OFFSET_X, 0, 0);
-    const node = createRoundRectNode(
-      dir < 0 ? 'arrowPrev' : 'arrowNext', this.node, this.node.children.length,
-      ARROW_SIZE, ARROW_SIZE, ARROW_SIZE / 2,
-      UI_COLORS.pillBg, UI_COLORS.pillBorder, pos,
-    );
+    for (let r = 0; r < n; r++) {
+      const req = reqs[r];
+      const x = startX + r * (REQ_ICON_SIZE + REQ_GAP);
+      const icon = createSpriteNode(
+        'reqIcon', card, card.children.length,
+        REQ_ICON_SIZE, REQ_ICON_SIZE,
+        getItemSpritePath(req.itemId),
+        new Vec3(x, REQ_ICON_Y, 0),
+      );
 
-    // 折线画在独立子节点上：createRoundRectNode 已占用 node 的 Graphics，
-    // 复用同一实例会让圆底 fill 与折线 stroke 互相干扰
-    const chevron = new Node('chevron');
-    chevron.layer = node.layer;
-    chevron.addComponent(UITransform).setContentSize(ARROW_SIZE, ARROW_SIZE);
-    node.addChild(chevron);
-    const g = chevron.addComponent(Graphics);
-    g.lineWidth = 4;
-    g.strokeColor = UI_COLORS.textBrown;
-    // 尖端指向翻页方向：next(dir=1) 画「›」，prev(dir=-1) 画「‹」
-    const tip = dir * 5;
-    const tail = dir * -4;
-    g.moveTo(tail, 9);
-    g.lineTo(tip, 0);
-    g.lineTo(tail, -9);
-    g.stroke();
-
-    const zone = node.addComponent(TapZoneComponent);
-    zone.onTap = () => {
-      const canvas = this.node.parent;
-      if (canvas && hasOpenBundlePage(canvas)) return;
-      this._pageStart += dir * MAX_VISIBLE_CARDS;
-      this._render(GameManager.instance.order.activeOrders);
-    };
-  }
-
-  /** 单个需求：物品贴图 + 名称，已交付时图标压暗并盖绿色勾徽章 */
-  private _buildRequirement(card: Node, req: OrderRequirement, x: number): void {
-    const icon = createSpriteNode(
-      'reqIcon', card, card.children.length,
-      REQ_ICON_SIZE, REQ_ICON_SIZE,
-      getItemSpritePath(req.itemId), new Vec3(x, REQ_ICON_Y, 0),
-    );
-
-    const name = getOrderItemName(req.itemId);
-    // 两列布局下每列可用约 72px，按字数缩小字号避免溢出
-    const fontSize = Math.min(15, Math.floor(72 / Math.max(1, name.length)));
-    this._makeLabel(card, 'reqName', new Vec3(x, REQ_NAME_Y, 0), fontSize, false, UI_COLORS.textBrown).string = name;
-
-    if (req.fulfilled) {
-      icon.addComponent(UIOpacity).opacity = 130;
-      this._addCheckBadge(card, new Vec3(x + REQ_ICON_SIZE / 2 - 8, REQ_ICON_Y + REQ_ICON_SIZE / 2 - 8, 0));
+      if (req.fulfilled) {
+        icon.addComponent(UIOpacity).opacity = 140;
+        this._addCheckBadge(card, new Vec3(
+          x + REQ_ICON_SIZE / 2 - 4,
+          REQ_ICON_Y + REQ_ICON_SIZE / 2 - 4,
+          0,
+        ));
+      }
     }
   }
 
-  /** 绿色圆底白勾徽章 */
+  /** 绿色圆底白勾徽章（带白色描边） */
   private _addCheckBadge(card: Node, pos: Vec3): void {
     const node = new Node('checkBadge');
     node.layer = card.layer;
-    node.addComponent(UITransform).setContentSize(26, 26);
+    node.addComponent(UITransform).setContentSize(CHECK_BADGE_SIZE, CHECK_BADGE_SIZE);
     node.setPosition(pos);
     card.addChild(node);
 
     const g = node.addComponent(Graphics);
-    g.fillColor = GREEN;
-    g.circle(0, 0, 12);
+    const r = CHECK_BADGE_SIZE / 2;
+    const s = CHECK_BADGE_SIZE / 20;
+    g.fillColor = CHECK_BG;
+    g.circle(0, 0, r);
     g.fill();
-    g.lineWidth = 2;
+    g.lineWidth = 2 * s;
     g.strokeColor = Color.WHITE;
-    g.circle(0, 0, 12);
+    g.circle(0, 0, r);
     g.stroke();
-    g.lineWidth = 3;
-    g.moveTo(-5, 0);
-    g.lineTo(-1.5, -4);
-    g.lineTo(5.5, 4.5);
+    g.lineWidth = 2.5 * s;
+    g.strokeColor = Color.WHITE;
+    g.moveTo(-4 * s, 0);
+    g.lineTo(-1.5 * s, -3 * s);
+    g.lineTo(4.5 * s, 3.5 * s);
     g.stroke();
   }
 
-  /** 奖励区：金币行 +（稀有单）精力行，图标 + 数字 */
-  private _buildRewardRows(card: Node, order: Order): void {
-    const hasEnergy = (order.reward.energy ?? 0) > 0;
-    const coinsY = hasEnergy ? -44 : -58;
-    this._makeRewardRow(card, coinsY, 'sprites/currency/coin', `+${order.reward.coins}`);
-    if (hasEnergy) {
-      this._makeRewardRow(card, -78, 'sprites/ui/energy_bolt', `+${order.reward.energy}`);
-    }
-  }
+  /** 金币奖励药丸（135deg 渐变 + 描边 + 金币图标 + 数字） */
+  private _buildRewardPill(card: Node, order: Order): void {
+    const coins = order.reward.coins;
+    const text = String(coins);
+    const textW = text.length * REWARD_TEXT_SIZE * 0.65;
+    const pillW = REWARD_COIN_SIZE + 6 + textW + 20;
 
-  /** 一行「图标 + 数字」，整体在卡片内水平居中 */
-  private _makeRewardRow(card: Node, y: number, iconPath: string, text: string): void {
-    const iconSize = 26;
-    const fontSize = 22;
-    const gap = 4;
-    const textWidth = text.length * fontSize * 0.6;
-    const totalWidth = iconSize + gap + textWidth;
-    const iconX = -totalWidth / 2 + iconSize / 2;
-    createSpriteNode('rewardIcon', card, card.children.length, iconSize, iconSize, iconPath, new Vec3(iconX, y, 0));
-    const label = this._makeLabel(
-      card, 'rewardValue',
-      new Vec3(iconX + iconSize / 2 + gap, y, 0),
-      fontSize, true, UI_COLORS.textBrown, true,
+    const pill = new Node('rewardPill');
+    pill.layer = card.layer;
+    pill.addComponent(UITransform).setContentSize(pillW, REWARD_PILL_H);
+    pill.setPosition(new Vec3(0, REWARD_PILL_Y, 0));
+    card.addChild(pill);
+
+    const g = pill.addComponent(Graphics);
+    const r = REWARD_PILL_H / 2;
+    const halfH = REWARD_PILL_H / 2;
+    // 上半层渐变
+    g.fillColor = REWARD_PILL_TOP;
+    g.moveTo(-pillW / 2, 0);
+    g.lineTo(-pillW / 2, halfH - r);
+    g.quadraticCurveTo(-pillW / 2, halfH, -pillW / 2 + r, halfH);
+    g.lineTo(pillW / 2 - r, halfH);
+    g.quadraticCurveTo(pillW / 2, halfH, pillW / 2, halfH - r);
+    g.lineTo(pillW / 2, 0);
+    g.close();
+    g.fill();
+    // 下半层渐变
+    g.fillColor = REWARD_PILL_BOT;
+    g.moveTo(-pillW / 2, 0);
+    g.lineTo(pillW / 2, 0);
+    g.lineTo(pillW / 2, -halfH + r);
+    g.quadraticCurveTo(pillW / 2, -halfH, pillW / 2 - r, -halfH);
+    g.lineTo(-pillW / 2 + r, -halfH);
+    g.quadraticCurveTo(-pillW / 2, -halfH, -pillW / 2, -halfH + r);
+    g.close();
+    g.fill();
+    // 描边
+    g.lineWidth = 1.5;
+    g.strokeColor = REWARD_PILL_BORDER;
+    g.moveTo(-pillW / 2, -halfH + r);
+    g.quadraticCurveTo(-pillW / 2, -halfH, -pillW / 2 + r, -halfH);
+    g.lineTo(pillW / 2 - r, -halfH);
+    g.quadraticCurveTo(pillW / 2, -halfH, pillW / 2, -halfH + r);
+    g.lineTo(pillW / 2, halfH - r);
+    g.quadraticCurveTo(pillW / 2, halfH, pillW / 2 - r, halfH);
+    g.lineTo(-pillW / 2 + r, halfH);
+    g.quadraticCurveTo(-pillW / 2, halfH, -pillW / 2, halfH - r);
+    g.close();
+    g.stroke();
+
+    const iconX = -pillW / 2 + 10 + REWARD_COIN_SIZE / 2;
+    createSpriteNode(
+      'coinIcon', pill, pill.children.length,
+      REWARD_COIN_SIZE, REWARD_COIN_SIZE,
+      'sprites/currency/coin',
+      new Vec3(iconX, 0, 0),
     );
+
+    const labelNode = new Node('coinValue');
+    labelNode.layer = pill.layer;
+    const lui = labelNode.addComponent(UITransform);
+    lui.setContentSize(textW + 4, REWARD_PILL_H - 4);
+    lui.setAnchorPoint(0, 0.5);
+    labelNode.setPosition(new Vec3(iconX + REWARD_COIN_SIZE / 2 + 6, 0, 0));
+    pill.addChild(labelNode);
+    const label = labelNode.addComponent(Label);
     label.string = text;
+    label.fontSize = REWARD_TEXT_SIZE;
+    label.lineHeight = REWARD_TEXT_SIZE * 1.3;
+    label.isBold = true;
+    label.color = REWARD_TEXT_COLOR;
+    label.horizontalAlign = Label.HorizontalAlign.LEFT;
+    label.overflow = Label.Overflow.SHRINK;
   }
 
-  /** 全部凑齐 → 绿色「领取」按钮（对齐 Web 版 .collect-btn） */
+  /** 橙色领取按钮（180deg 渐变 + 描边 + 白色文字 + 顶部高光） */
   private _buildCollectButton(card: Node): void {
-    const btn = createRoundRectNode(
-      'collectBtn', card, card.children.length,
-      104, 42, 21, GREEN, GREEN_DARK, new Vec3(0, -58, 0),
-    );
-    const label = this._makeLabel(btn, 'label', new Vec3(0, 0, 0), 24, true, Color.WHITE);
-    label.string = '领取';
-  }
+    const btn = new Node('collectBtn');
+    btn.layer = card.layer;
+    btn.addComponent(UITransform).setContentSize(COLLECT_BTN_W, COLLECT_BTN_H);
+    btn.setPosition(new Vec3(0, COLLECT_BTN_Y, 0));
+    card.addChild(btn);
 
-  private _makeLabel(
-    parent: Node, name: string, pos: Vec3,
-    fontSize: number, bold: boolean, color: Color, anchorLeft = false,
-  ): Label {
-    const node = new Node(name);
-    node.layer = parent.layer;
-    const ui = node.addComponent(UITransform);
-    if (anchorLeft) ui.setAnchorPoint(0, 0.5);
-    node.setPosition(pos);
-    parent.addChild(node);
-    const label = node.addComponent(Label);
-    label.fontSize = fontSize;
-    label.lineHeight = fontSize + 6;
-    label.isBold = bold;
-    label.color = color;
-    if (anchorLeft) label.horizontalAlign = Label.HorizontalAlign.LEFT;
-    return label;
+    const g = btn.addComponent(Graphics);
+    const r = COLLECT_BTN_H / 2;
+    const halfH = COLLECT_BTN_H / 2;
+    // 上半层渐变
+    g.fillColor = COLLECT_BTN_TOP;
+    g.moveTo(-COLLECT_BTN_W / 2, 0);
+    g.lineTo(-COLLECT_BTN_W / 2, halfH - r);
+    g.quadraticCurveTo(-COLLECT_BTN_W / 2, halfH, -COLLECT_BTN_W / 2 + r, halfH);
+    g.lineTo(COLLECT_BTN_W / 2 - r, halfH);
+    g.quadraticCurveTo(COLLECT_BTN_W / 2, halfH, COLLECT_BTN_W / 2, halfH - r);
+    g.lineTo(COLLECT_BTN_W / 2, 0);
+    g.close();
+    g.fill();
+    // 下半层渐变
+    g.fillColor = COLLECT_BTN_BOT;
+    g.moveTo(-COLLECT_BTN_W / 2, 0);
+    g.lineTo(COLLECT_BTN_W / 2, 0);
+    g.lineTo(COLLECT_BTN_W / 2, -halfH + r);
+    g.quadraticCurveTo(COLLECT_BTN_W / 2, -halfH, COLLECT_BTN_W / 2 - r, -halfH);
+    g.lineTo(-COLLECT_BTN_W / 2 + r, -halfH);
+    g.quadraticCurveTo(-COLLECT_BTN_W / 2, -halfH, -COLLECT_BTN_W / 2, -halfH + r);
+    g.close();
+    g.fill();
+    // 描边
+    g.lineWidth = 2;
+    g.strokeColor = COLLECT_BTN_BORDER;
+    g.moveTo(-COLLECT_BTN_W / 2, -halfH + r);
+    g.quadraticCurveTo(-COLLECT_BTN_W / 2, -halfH, -COLLECT_BTN_W / 2 + r, -halfH);
+    g.lineTo(COLLECT_BTN_W / 2 - r, -halfH);
+    g.quadraticCurveTo(COLLECT_BTN_W / 2, -halfH, COLLECT_BTN_W / 2, -halfH + r);
+    g.lineTo(COLLECT_BTN_W / 2, halfH - r);
+    g.quadraticCurveTo(COLLECT_BTN_W / 2, halfH, COLLECT_BTN_W / 2 - r, halfH);
+    g.lineTo(-COLLECT_BTN_W / 2 + r, halfH);
+    g.quadraticCurveTo(-COLLECT_BTN_W / 2, halfH, -COLLECT_BTN_W / 2, halfH - r);
+    g.close();
+    g.stroke();
+    // 顶部高光
+    g.fillColor = COLLECT_BTN_HIGHLIGHT;
+    g.roundRect(-COLLECT_BTN_W / 2 + 4, COLLECT_BTN_H / 2 - 8, COLLECT_BTN_W - 8, 6, 3);
+    g.fill();
+
+    const labelNode = new Node('label');
+    labelNode.layer = btn.layer;
+    labelNode.addComponent(UITransform);
+    btn.addChild(labelNode);
+    const label = labelNode.addComponent(Label);
+    label.string = '领取';
+    label.fontSize = COLLECT_BTN_FONT;
+    label.lineHeight = COLLECT_BTN_FONT * 1.3;
+    label.isBold = true;
+    label.color = Color.WHITE;
   }
 }

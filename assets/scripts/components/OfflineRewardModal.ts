@@ -54,8 +54,8 @@ export class OfflineRewardModal extends Component {
     buildScrim(this.node);
     const panel = buildPanel(this.node, MODAL_W, MODAL_H);
 
-    buildModalLabel(panel, '欢迎回来', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
-    buildModalLabel(panel, `离线 ${data.duration}`, 24, new Vec3(0, MODAL_H / 2 - 118, 0));
+    buildModalLabel(panel, '欢迎回来呀', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
+    buildModalLabel(panel, `离开 ${data.duration} 啦`, 24, new Vec3(0, MODAL_H / 2 - 118, 0));
     buildModalLabel(panel, `+${data.energy} 精力`, 44, new Vec3(0, 26, 0), {
       bold: true,
       color: new Color(126, 148, 74, 255),
@@ -69,7 +69,7 @@ export class OfflineRewardModal extends Component {
       BTN_DOUBLE,
       () => void this._onDouble(),
     );
-    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '直接领取', BTN_PLAIN, () =>
+    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '开心收下', BTN_PLAIN, () =>
       this._onPlain(),
     );
   }

@@ -53,7 +53,7 @@ export class OrderDoubleModal extends Component {
     buildScrim(this.node);
     const panel = buildPanel(this.node, MODAL_W, MODAL_H);
 
-    buildModalLabel(panel, '订单完成', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
+    buildModalLabel(panel, '订单完成啦', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
     buildModalLabel(panel, `+${this._baseCoins} 金币`, 44, new Vec3(0, 20, 0), {
       bold: true,
       color: COIN_GOLD,
@@ -67,7 +67,7 @@ export class OrderDoubleModal extends Component {
       BTN_DOUBLE,
       () => void this._onDouble(),
     );
-    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '不用了', BTN_PLAIN, () =>
+    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '不用啦', BTN_PLAIN, () =>
       this._onSkip(),
     );
   }

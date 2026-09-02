@@ -1,4 +1,4 @@
-import { _decorator, Component, EventTouch, Input, input, Mask, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Input, input, Mask, Node, UITransform, Vec3 } from 'cc';
 
 const { ccclass } = _decorator;
 
@@ -23,6 +23,8 @@ export class DragScrollComponent extends Component {
   content: Node | null = null;
   /** 内容总高；小于等于可视高时不滚动 */
   contentHeight = 0;
+  /** 触摸优先级提升（占位兼容，微信端触摸优先级由 tap-zone 模态层管理） */
+  priorityBoost = 0;
 
   /** 拖动超过这个距离才算滚动，避免和点击抢事件 */
   private static readonly DRAG_THRESHOLD = 8;
@@ -127,7 +129,15 @@ export function createScrollView(parent: Node, width: number, height: number): S
   view.addComponent(UITransform).setContentSize(width, height);
   parent.addChild(view);
 
-  // Mask 用 GRAPHICS_RECT，避免额外贴图；它会按节点尺寸裁剪子树
+  // 提前挂 Graphics：Mask.Type.GRAPHICS_RECT 在 onLoad 时会尝试给节点 addComponent(Graphics)，
+  // 在微信小游戏灰度基础库 3.17.1 下这一步会抛错误 3804 导致整个 addComponent(Mask) 失败。
+  // 提前创建好 Graphics 并画好矩形，Mask onLoad 时 getComponent(Graphics) 能直接拿到已有实例，
+  // 不再触发 addComponent，从而绕过 3804。
+  const g = view.addComponent(Graphics);
+  g.fillColor = new Color(0, 0, 0, 0);
+  g.rect(-width / 2, -height / 2, width, height);
+  g.fill();
+
   const mask = view.addComponent(Mask);
   mask.type = Mask.Type.GRAPHICS_RECT;
 

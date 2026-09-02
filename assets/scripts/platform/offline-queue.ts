@@ -8,43 +8,23 @@
  * - 重放失败（非网络原因）则丢弃该条，避免死循环
  *
  * 平台适配：微信小游戏 (wx.* APIs)
+ * 网络状态统一由 platform/network.ts 管理，避免与 request.ts 各自维护导致不一致
  */
 
 import { reportMerge, reportSell } from '../api/economy';
 import { spendEnergy, buyEnergy } from '../api/energy';
 import { claimAdReward } from '../api/rewards';
 import { completeOrder } from '../api/order';
+import { isOnline, onReconnect as onNetworkReconnect } from './network';
 
-// --- 网络状态 ---
+// --- 网络恢复处理 ---
 
-let _isOnline = true;
-
-if (typeof wx !== 'undefined') {
-  wx.getNetworkType({
-    success(res: { networkType: string }) {
-      _isOnline = res.networkType !== 'none';
-    },
-  });
-
-  wx.onNetworkStatusChange((res: { isConnected: boolean }) => {
-    const wasOffline = !_isOnline;
-    _isOnline = res.isConnected;
-
-    if (res.isConnected && wasOffline) {
-      handleReconnect();
-    }
-
-    if (!res.isConnected) {
-      console.info('[offline-queue] 网络断开，操作将缓存到队列');
-    }
-  });
-}
+let _reconnectRegistered = false;
 
 async function handleReconnect(): Promise<void> {
   console.info('[offline-queue] 网络恢复，开始重放队列');
   const result = await flushQueue();
   console.info(`[offline-queue] 重放完成: ${result.success} 成功, ${result.failed} 丢弃`);
-  onReconnectCallback?.();
 }
 
 // --- 操作类型 ---
@@ -93,7 +73,6 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 超过 24 小时的操作丢弃
 
 let queue: QueuedOp[] = [];
 let flushing = false;
-let onReconnectCallback: (() => void) | null = null;
 
 /** 从 wx.storage 恢复队列 */
 function loadQueue(): void {
@@ -126,10 +105,8 @@ function persistQueue(): void {
   }
 }
 
-/** 检测网络是否可用 */
-export function isOnline(): boolean {
-  return _isOnline;
-}
+/** 检测网络是否可用（统一由 platform/network.ts 管理） */
+export { isOnline };
 
 /** 入队一条操作 */
 export function enqueue(op: Omit<QueuedOp, 'timestamp'>): void {
@@ -213,11 +190,16 @@ function isNetworkError(err: unknown): boolean {
  * 返回取消注册函数
  */
 export function onReconnect(cb: () => void): () => void {
-  onReconnectCallback = cb;
-  return () => { onReconnectCallback = null; };
+  return onNetworkReconnect(cb);
 }
 
-/** 初始化：恢复队列（网络监听已在模块顶部完成） */
+/** 初始化：恢复队列 + 注册网络恢复回调（网络监听由 platform/network.ts 统一管理） */
 export function initOfflineQueue(): void {
   loadQueue();
+  if (!_reconnectRegistered) {
+    _reconnectRegistered = true;
+    onNetworkReconnect(() => {
+      void handleReconnect();
+    });
+  }
 }

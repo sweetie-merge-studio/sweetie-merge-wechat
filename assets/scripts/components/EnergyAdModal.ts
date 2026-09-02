@@ -19,7 +19,7 @@ import {
 const { ccclass } = _decorator;
 
 const MODAL_W = 560;
-const MODAL_H = 360;
+const MODAL_H = 400;
 const BTN_GAP = 16;
 
 /** 精力条的青绿色 */
@@ -57,25 +57,25 @@ export class EnergyAdModal extends Component {
     const reward = getConfig().energy.adReward;
     // 频控达限（单日上限/冷却中）时不给广告入口，只留「再等等」——入口隐藏优于点了报错
     const adAvailable = GameManager.instance.energyAdAvailable;
-    buildModalLabel(panel, '精力不足', 34, new Vec3(0, MODAL_H / 2 - 62, 0), { bold: true });
+    buildModalLabel(panel, '精力不够啦', 34, new Vec3(0, MODAL_H / 2 - 56, 0), { bold: true });
     buildModalLabel(
       panel,
-      adAvailable ? `看广告补 +${reward} 精力` : '今日看广告次数已用完，精力会随时间恢复',
+      adAvailable ? `看个小广告补 +${reward} 精力哦` : '今日看广告次数用完啦，精力会慢慢恢复的',
       24,
-      new Vec3(0, MODAL_H / 2 - 118, 0),
+      new Vec3(0, MODAL_H / 2 - 108, 0),
     );
-    buildModalLabel(panel, `+${reward}`, 44, new Vec3(0, 10, 0), {
+    buildModalLabel(panel, `+${reward}`, 48, new Vec3(0, 24, 0), {
       bold: true,
       color: ENERGY_GREEN,
     });
 
     if (adAvailable) {
-      const btnY = -MODAL_H / 2 + 62 + MODAL_BTN_H + BTN_GAP;
+      const btnY = -MODAL_H / 2 + 70 + MODAL_BTN_H + BTN_GAP;
       this._adButton = buildModalButton(panel, new Vec3(0, btnY, 0), '看广告', BTN_DOUBLE, () =>
         void this._onWatch(),
       );
     }
-    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '再等等', BTN_PLAIN, () =>
+    buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 70, 0), '再等等', BTN_PLAIN, () =>
       this._onSkip(),
     );
   }
@@ -97,7 +97,7 @@ export class EnergyAdModal extends Component {
       const canvas = this.node.parent;
       if (this.node.isValid) this.node.destroy();
       // 广告没看完（关掉/加载失败）要给个交代，否则弹窗一闪而过像是白点
-      if (!ok && canvas) showPageToast(canvas, '广告未看完，精力没有补上');
+      if (!ok && canvas) showPageToast(canvas, '广告没看完，精力没有补上哦');
     }
   }
 }

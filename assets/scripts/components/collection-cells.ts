@@ -25,8 +25,19 @@ export const UNCLAIMED_STROKE = new Color(212, 162, 78, 255);
 export const TEXT_MUTED = new Color(184, 160, 128, 255);
 /** 卡片描边 #D4B28C 30%（Web .category-card border） */
 export const CARD_BORDER = new Color(212, 178, 140, 90);
+/** 拱顶相框描边 #C49A6C（已解锁物品的外框） */
+export const FRAME_BORDER = new Color(196, 154, 108, 255);
+/** 拱顶相框内层高光边 #E8CFA8 */
+export const FRAME_INNER = new Color(232, 207, 168, 255);
 /** 母棋条渐变底 #EDD0A8（Web .mother-strip） */
 export const MOTHER_BG = new Color(237, 208, 168, 255);
+
+/** 进度条轨道色 */
+export const PROGRESS_TRACK = new Color(230, 215, 190, 180);
+/** 进度条填充色（暖橙） */
+export const PROGRESS_FILL = new Color(255, 154, 139, 255);
+/** 进度条填充高光 */
+export const PROGRESS_FILL_LIGHT = new Color(255, 190, 170, 255);
 
 export const LOCK_SPRITE = 'sprites/ui/lock';
 export const DIAMOND_SPRITE = 'sprites/currency/diamond';
@@ -49,6 +60,82 @@ export function paintRoundRect(
     g.lineWidth = strokeWidth;
     g.strokeColor = stroke;
     g.roundRect(-w / 2, -h / 2, w, h, radius);
+    g.stroke();
+  }
+  return g;
+}
+
+/**
+ * 画水平进度条（轨道 + 填充 + 顶部高光）。
+ * ratio 0~1，填充色用主题色，轨道用浅米色。
+ */
+export function paintProgressBar(
+  node: Node,
+  w: number,
+  h: number,
+  ratio: number,
+  fillColor?: Color,
+  trackColor?: Color,
+): Graphics {
+  const g = node.addComponent(Graphics);
+  const r = h / 2;
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const fill = fillColor ?? PROGRESS_FILL;
+  const track = trackColor ?? PROGRESS_TRACK;
+
+  // 轨道
+  g.fillColor = track;
+  g.roundRect(-w / 2, -h / 2, w, h, r);
+  g.fill();
+
+  if (clamped > 0) {
+    const fillW = w * clamped;
+    // 填充
+    g.fillColor = fill;
+    g.roundRect(-w / 2, -h / 2, fillW, h, r);
+    g.fill();
+    // 顶部高光条
+    g.fillColor = PROGRESS_FILL_LIGHT;
+    g.roundRect(-w / 2 + 2, -h / 2 + 2, Math.max(0, fillW - 4), h * 0.4, (h * 0.4) / 2);
+    g.fill();
+  }
+  return g;
+}
+
+/**
+ * 画拱顶相框卡片（对齐 Web 版 .item 的造型）。
+ * 顶部圆弧拱 + 底部圆角，像一个小展示窗；可选内层描边营造相框立体感。
+ * 拱顶会超出节点 h/2 边界（Graphics 不受 UITransform 裁剪），布局时已留间距。
+ */
+export function paintArchedCard(
+  node: Node,
+  w: number,
+  h: number,
+  fill: Color,
+  stroke?: Color,
+  strokeWidth = 3,
+  archHeight = 10,
+): Graphics {
+  const g = node.addComponent(Graphics);
+  const r = 14; // 底部圆角
+  const topY = h / 2; // 直边顶部基线
+  const peakY = topY + archHeight; // 拱顶峰值
+
+  // 路径：左肩 → 拱顶 → 右肩 → 右下圆角 → 底部 → 左下圆角 → 闭合
+  g.moveTo(-w / 2, topY);
+  g.quadraticCurveTo(0, peakY, w / 2, topY);
+  g.lineTo(w / 2, -h / 2 + r);
+  g.quadraticCurveTo(w / 2, -h / 2, w / 2 - r, -h / 2);
+  g.lineTo(-w / 2 + r, -h / 2);
+  g.quadraticCurveTo(-w / 2, -h / 2, -w / 2, -h / 2 + r);
+  g.close();
+
+  g.fillColor = fill;
+  g.fill();
+
+  if (stroke) {
+    g.lineWidth = strokeWidth;
+    g.strokeColor = stroke;
     g.stroke();
   }
   return g;

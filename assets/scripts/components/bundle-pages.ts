@@ -15,6 +15,7 @@ import {
 import { MODAL_PREFIX } from './modal-chrome';
 import { TapZoneComponent } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
+import { fontManager } from '../core/font-manager';
 
 /**
  * 分包页面调度：loadBundle 后在 Canvas 上叠一层全屏 overlay，
@@ -30,6 +31,18 @@ const PAGE_H = 1280;
 
 /** 页面背景奶油色 #F2E9CA（对齐 Web 版 body 背景） */
 const PAGE_BG = new Color(242, 233, 202, 255);
+
+/* ═══ Toast 轻提示（公共组件，所有页面统一调用） ═══ */
+const TOAST_MAX_W = 560;       // 最大宽度，避免撑满屏幕
+const TOAST_PAD_X = 32;         // 左右内边距
+const TOAST_PAD_Y = 14;         // 上下内边距
+const TOAST_FONT = 24;          // 字号
+const TOAST_LINE_H = 32;        // 行高
+const TOAST_RADIUS = 18;        // 圆角
+const TOAST_BG = new Color(60, 42, 30, 230); // 深棕半透明底
+const TOAST_TEXT = new Color(255, 248, 238, 255);
+const TOAST_BOTTOM_Y = -420;    // 距屏幕底部的位置（导航栏上方）
+const TOAST_DURATION = 1600;    // 显示时长 ms
 
 function pageNodeName(bundleName: string): string {
   return `BundlePage_${bundleName}`;
@@ -180,69 +193,115 @@ export function createPageChrome(root: Node, title: string, onBack?: () => void)
   titleLabel.lineHeight = 52;
   titleLabel.isBold = true;
   titleLabel.color = UI_COLORS.textBrown;
+  fontManager.applyFont(titleLabel);
   addAlignedWidget(titleNode, { isAlignTop: true, top: 180 });
 
-  // 返回按钮
+  // 返回按钮 — 圆形图标按钮，奶油底+暖棕描边+柔和阴影，‹ 箭头
+  const BACK_SIZE = 76;
   const back = new Node('backButton');
   back.layer = root.layer;
-  back.addComponent(UITransform).setContentSize(120, 64);
+  back.addComponent(UITransform).setContentSize(BACK_SIZE, BACK_SIZE);
   root.addChild(back);
   const g = back.addComponent(Graphics);
-  g.fillColor = UI_COLORS.pillBg;
-  g.roundRect(-60, -32, 120, 64, 20);
+  const R = BACK_SIZE / 2;
+  // 底部阴影（向下偏移 3px）
+  g.fillColor = new Color(92, 58, 30, 35);
+  g.circle(0, -3, R);
   g.fill();
-  g.lineWidth = 3;
+  // 主底色
+  g.fillColor = UI_COLORS.pillBg;
+  g.circle(0, 0, R);
+  g.fill();
+  // 顶部内高光（小圆偏上，营造立体感）
+  g.fillColor = new Color(255, 255, 255, 60);
+  g.circle(0, 8, R - 12);
+  g.fill();
+  // 描边
+  g.lineWidth = 2.5;
   g.strokeColor = UI_COLORS.pillBorder;
-  g.roundRect(-60, -32, 120, 64, 20);
+  g.circle(0, 0, R);
   g.stroke();
 
   const backLabelNode = new Node('label');
   backLabelNode.layer = root.layer;
   backLabelNode.addComponent(UITransform);
+  backLabelNode.setPosition(new Vec3(0, 6, 0));
   back.addChild(backLabelNode);
   const backLabel = backLabelNode.addComponent(Label);
-  backLabel.string = '< 返回';
-  backLabel.fontSize = 28;
-  backLabel.lineHeight = 34;
+  backLabel.string = '‹';
+  backLabel.fontSize = 48;
+  backLabel.lineHeight = 56;
   backLabel.isBold = true;
   backLabel.color = UI_COLORS.textBrown;
+  fontManager.applyFont(backLabel);
 
-  addAlignedWidget(back, { isAlignTop: true, isAlignLeft: true, top: 172, left: 24 });
+  addAlignedWidget(back, { isAlignTop: true, isAlignLeft: true, top: 168, left: 24 });
 
   const backZone = back.addComponent(TapZoneComponent);
+  backZone.debugName = `back-${title}`;
   backZone.onTap = () => {
     if (onBack) onBack();
     else closeBundlePage(root);
   };
+
+  // 确保返回按钮和标题显示在最上层（避免被 Tab 栏等后添加的节点遮挡）
+  back.setSiblingIndex(root.children.length - 1);
+  titleNode.setSiblingIndex(root.children.length - 1);
 }
 
-/** 页面内轻提示：顶部浮现文字，1.6s 后自动消失 */
+/**
+ * 页面内轻提示（公共组件）：底部浮现文字，1.6s 后自动消失。
+ * 文字超长自动换行，背景尺寸随文字自适应，最大宽度 560 避免撑满屏幕。
+ * 所有页面统一调用此函数，确保 toast 样式和位置一致。
+ */
 export function showPageToast(root: Node, text: string): void {
   const old = root.getChildByName('pageToast');
   if (old) old.destroy();
 
+  // 估算文字尺寸（中文约等于字号，英文/数字约 0.6 字号，取 0.85 平均）
+  const charW = TOAST_FONT * 0.85;
+  const textAvailW = TOAST_MAX_W - TOAST_PAD_X * 2;
+  const charsPerLine = Math.max(1, Math.floor(textAvailW / charW));
+  const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
+  const textH = lines * TOAST_LINE_H;
+  // 单行时宽度贴合文字，多行时用最大宽度
+  const toastW = lines === 1
+    ? Math.min(TOAST_MAX_W, text.length * charW + TOAST_PAD_X * 2)
+    : TOAST_MAX_W;
+  const toastH = textH + TOAST_PAD_Y * 2;
+
   const toast = new Node('pageToast');
   toast.layer = root.layer;
-  toast.addComponent(UITransform).setContentSize(400, 60);
-  toast.setPosition(new Vec3(0, 360, 0));
+  toast.addComponent(UITransform).setContentSize(toastW, toastH);
+  // 固定在底部导航栏上方，所有 toast 位置统一
+  toast.setPosition(new Vec3(0, TOAST_BOTTOM_Y, 0));
   root.addChild(toast);
 
+  // 背景（深棕半透明圆角）
   const g = toast.addComponent(Graphics);
-  g.fillColor = new Color(60, 42, 30, 230);
-  g.roundRect(-200, -30, 400, 60, 18);
+  g.fillColor = TOAST_BG;
+  g.roundRect(-toastW / 2, -toastH / 2, toastW, toastH, TOAST_RADIUS);
   g.fill();
 
+  // 文字（居中、自动换行）
   const labelNode = new Node('label');
   labelNode.layer = root.layer;
-  labelNode.addComponent(UITransform);
+  labelNode.addComponent(UITransform).setContentSize(textAvailW, textH);
+  labelNode.setPosition(new Vec3(0, 0, 0));
   toast.addChild(labelNode);
   const label = labelNode.addComponent(Label);
   label.string = text;
-  label.fontSize = 26;
-  label.lineHeight = 32;
-  label.color = new Color(255, 248, 238, 255);
+  label.fontSize = TOAST_FONT;
+  label.lineHeight = TOAST_LINE_H;
+  label.color = TOAST_TEXT;
+  label.isBold = false;
+  label.enableWrapText = true;
+  label.horizontalAlign = Label.HorizontalAlign.CENTER;
+  label.verticalAlign = Label.VerticalAlign.CENTER;
+  label.overflow = Label.Overflow.SHRINK;
+  fontManager.applyFont(label);
 
   setTimeout(() => {
     if (toast.isValid) toast.destroy();
-  }, 1600);
+  }, TOAST_DURATION);
 }

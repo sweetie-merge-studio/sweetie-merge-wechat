@@ -9,6 +9,7 @@ import { hasOpenBundlePage, showPageToast } from './bundle-pages';
 import { EnergyAdModal } from './EnergyAdModal';
 import { ItemComponent } from './ItemComponent';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
+import { getBoardTopOffset, NAV_RESERVE } from './layout';
 
 const { ccclass, property } = _decorator;
 
@@ -17,11 +18,7 @@ const CELL_W = 106;
 const CELL_GAP = 4;
 const CELL_RADIUS = 10;
 /** 木托盘图比棋盘四周各多出的边距 */
-const TRAY_PADDING = 30;
-/** 与 GameManager._anchorSections 的棋盘 top 锚定值保持一致 */
-const BOARD_TOP_OFFSET = 630;
-/** 底部导航 + 间距的预留高度 */
-const NAV_RESERVE = 170;
+const TRAY_PADDING = 20;
 /** Item.prefab 原始尺寸 */
 const ITEM_BASE_SIZE = 88;
 /** 格子描边（深棕低透明度，给平铺色块一点层次） */
@@ -56,17 +53,66 @@ export class BoardComponent extends Component {
   private _itemScale = (68 - 8) / ITEM_BASE_SIZE;
 
   protected onLoad(): void {
+    this._resize();
+    this._buildGrid();
+  }
+
+  protected start(): void {
+    // onLoad 时可视尺寸可能还没定型（小游戏首帧仍是 720×1280 的设计值，
+    // Widget 对齐也尚未跑过），此时算出的行高会偏小，命中区随之与实际格子错位。
+    // start 已在首次对齐之后，尺寸变了就按真实值重排一次。
+    if (this._resize()) this._relayoutGrid();
+  }
+
+  /**
+   * 按当前可视高度重算行高与物品缩放。
+   * @returns 行高是否发生变化
+   */
+  private _resize(): boolean {
     // 用可视高度（设计单位）而非 Canvas 节点高度：onLoad 早于 Widget 对齐，
     // 高屏机型 Canvas 此刻还停在 1280，直接读会把撑开的高度浪费掉
     const visibleH = view.getVisibleSize().height;
     const canvasH = visibleH > 0
       ? visibleH
       : this.node.parent?.getComponent(UITransform)?.height ?? 1280;
-    const available = canvasH - BOARD_TOP_OFFSET - NAV_RESERVE;
+    const available = canvasH - getBoardTopOffset() - NAV_RESERVE;
     const raw = (available - TRAY_PADDING * 2 - (BOARD_ROWS - 1) * CELL_GAP) / BOARD_ROWS;
-    this._cellH = Math.max(56, Math.min(96, Math.floor(raw)));
-    this._itemScale = (this._cellH - 8) / ITEM_BASE_SIZE;
-    this._buildGrid();
+    // 高度上限放宽到宽度的 1.25 倍，允许竖长方形格子填满高屏多余空间；
+    // 物品缩放基于宽度（见下），格子变高不会导致物品溢出左右边界。
+    const next = Math.max(56, Math.min(Math.floor(CELL_W * 1.25), Math.floor(raw)));
+    if (next === this._cellH) return false;
+    this._cellH = next;
+    // 物品等比缩放以宽度为基准：格子再高物品也不超出左右，垂直居中上下留空
+    this._itemScale = (Math.min(CELL_W, this._cellH) - 8) / ITEM_BASE_SIZE;
+    return true;
+  }
+
+  /** 行高变化后重排格子、托盘和高亮框（不重建节点，只改尺寸和位置） */
+  private _relayoutGrid(): void {
+    const totalW = BOARD_COLS * CELL_W + (BOARD_COLS - 1) * CELL_GAP;
+    const totalH = BOARD_ROWS * this._cellH + (BOARD_ROWS - 1) * CELL_GAP;
+    this.node.getComponent(UITransform)?.setContentSize(totalW, totalH);
+
+    const tray = this.node.getChildByName('trayBg');
+    tray?.getComponent(UITransform)?.setContentSize(
+      totalW + TRAY_PADDING * 2,
+      totalH + TRAY_PADDING * 2,
+    );
+
+    for (let i = 0; i < this._cellNodes.length; i++) {
+      const cell = this._cellNodes[i];
+      const row = Math.floor(i / BOARD_COLS);
+      const col = i % BOARD_COLS;
+      cell.getComponent(UITransform)?.setContentSize(CELL_W, this._cellH);
+      const x = col * (CELL_W + CELL_GAP) - totalW / 2 + CELL_W / 2;
+      const y = totalH / 2 - row * (this._cellH + CELL_GAP) - this._cellH / 2;
+      cell.setPosition(new Vec3(x, y, 0));
+      // 重绘格子背景（旧 Graphics 的 roundRect 尺寸是旧的）
+      cell.getComponent(Graphics)?.destroy();
+      this._drawCellBackground(cell, (row + col) % 2 === 1);
+    }
+
+    this._highlightNode?.getComponent(UITransform)?.setContentSize(CELL_W, this._cellH);
   }
 
   protected onEnable(): void {
@@ -125,7 +171,6 @@ export class BoardComponent extends Component {
     if (canvas && hasOpenBundlePage(canvas)) return;
     const local = this._touchToLocal(event);
     const idx = this._cellIndexAt(local);
-    console.info(`[board] touch (${local.x.toFixed(0)}, ${local.y.toFixed(0)}) -> cell ${idx}`);
     if (idx < 0) return;
     const gm = GameManager.instance;
     if (!gm.board[idx]?.itemId) return;

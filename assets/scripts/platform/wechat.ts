@@ -14,12 +14,49 @@ export function setRewardedAdId(id: string) { _rewardedAdId = id; }
 export function setInterstitialAdId(id: string) { _interstitialAdId = id; }
 
 const SAVE_KEY = 'sweetie_merge_save';
+const PRIVACY_KEY = 'sweetie_privacy_consent';
 
 /**
  * 非微信环境标记（web-mobile 构建 / 浏览器本地验证）。
  * wx 全局不存在时所有平台能力降级：存档走 localStorage、广告直接放行、登录走离线。
  */
 const hasWx = typeof wx !== 'undefined';
+
+/**
+ * 读取隐私协议同意状态。
+ * 存储值：'1' = 已同意，'0' = 已拒绝，未存过/非法值回退 false（未同意）。
+ */
+export function getPrivacyConsent(): boolean {
+  try {
+    let raw: unknown;
+    if (hasWx) {
+      raw = wx.getStorageSync(PRIVACY_KEY);
+    } else {
+      raw = localStorage.getItem(PRIVACY_KEY);
+    }
+    if (raw === null || raw === undefined || raw === '') return false;
+    return String(raw) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 写入隐私协议同意状态并持久化。
+ * 同意（true）后后续启动不再弹窗；拒绝（false）同样持久化，但下次启动仍弹窗。
+ */
+export function setPrivacyConsent(val: boolean): void {
+  try {
+    const v = val ? '1' : '0';
+    if (hasWx) {
+      wx.setStorageSync(PRIVACY_KEY, v);
+    } else {
+      localStorage.setItem(PRIVACY_KEY, v);
+    }
+  } catch {
+    console.warn('[wechat] 隐私同意状态保存失败');
+  }
+}
 
 /** 启动场景值（埋点 session_start 的 scene），取不到返回空串 */
 export function getLaunchScene(): string {
@@ -31,11 +68,58 @@ export function getLaunchScene(): string {
   }
 }
 
+// --- onShow 监听 ---
+
+let _lastShowOpts: Record<string, unknown> = {};
+
+/** 获取最近一次 onShow 参数 */
+export function getLastShowOpts(): Record<string, unknown> {
+  return _lastShowOpts;
+}
+
+// --- 胶囊按钮位置 ---
+
+/**
+ * 微信胶囊按钮中心线距屏幕顶部的距离（设计单位，720 宽基准）。
+ * 取不到时返回 0，由调用方决定回退策略。
+ */
+export function getCapsuleCenterYDesign(): number {
+  try {
+    if (!hasWx) return 0;
+    const sysInfo = wx.getSystemInfoSync();
+    const screenW = sysInfo?.screenWidth ?? 0;
+    if (screenW <= 0) return 0;
+    const toDesign = 720 / screenW;
+
+    const wxAny = wx as unknown as { getMenuButtonBoundingClientRect?: () => { top: number; height: number } };
+    if (typeof wxAny.getMenuButtonBoundingClientRect === 'function') {
+      const rect = wxAny.getMenuButtonBoundingClientRect();
+      if (rect && rect.top >= 0 && rect.height > 0) {
+        return (rect.top + rect.height / 2) * toDesign;
+      }
+    }
+    // 回退：胶囊按钮 ≈ statusBarHeight + 4(间距) + 16(半高)
+    if (sysInfo.statusBarHeight > 0) {
+      return (sysInfo.statusBarHeight + 20) * toDesign;
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 /** 微信平台初始化（在 app 入口调用一次） */
 export function wechatInit(): void {
   if (!hasWx) {
     console.warn('[wechat] 非微信环境，平台能力降级（浏览器验证模式）');
     return;
+  }
+  // 尽早监听 onShow（从后台切回前台时触发，用于刷新状态）
+  if (typeof wx.onShow === 'function') {
+    wx.onShow((opts?: Record<string, unknown>) => {
+      _lastShowOpts = opts ?? {};
+      console.info('[wechat] onShow:', JSON.stringify(opts));
+    });
   }
   // 注册全局转发菜单
   wx.showShareMenu({ withShareTicket: false });

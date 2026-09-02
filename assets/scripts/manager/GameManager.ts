@@ -72,6 +72,10 @@ import { serialize, deserialize } from '../core/storage';
 import { wechatPlatform, wechatInit, getLaunchScene, getLastRewardedAdError } from '../platform/wechat';
 import { initAnalyticsWechat } from '../platform/analytics-wechat';
 import { enqueue, initOfflineQueue, isOnline } from '../platform/offline-queue';
+import { initNetworkListener } from '../platform/network';
+import { initVibrate } from '../platform/vibrate';
+import { fontManager } from '../core/font-manager';
+import { fetchPrivacyDocs } from '../core/privacy-config';
 import { Events, trackEvent } from '../core/analytics';
 import { canWatchEnergyAd, recordEnergyAdShown } from '../core/ad-trigger';
 import { claimAdReward, type AdRewardType } from '../api/rewards';
@@ -84,6 +88,7 @@ import { CashierCounterComponent } from '../components/CashierCounterComponent';
 import { BottomNavComponent } from '../components/BottomNavComponent';
 import { OfflineRewardModal } from '../components/OfflineRewardModal';
 import { TutorialOverlay } from '../components/TutorialOverlay';
+import { PrivacyConsentModal } from '../components/PrivacyConsentModal';
 
 const { ccclass } = _decorator;
 
@@ -166,7 +171,13 @@ export class GameManager extends Component {
     initAnalyticsWechat();
     initAudio(this.node);
     playBgm();
+    initVibrate();
+    initNetworkListener();
     initOfflineQueue();
+    // 预加载自定义字体（所有弹窗/UI 文字统一风格）
+    fontManager.preload();
+    // 异步拉取隐私文档配置（后端可覆盖本地默认值，失败静默降级）
+    void fetchPrivacyDocs();
     // 全屏烘焙背景（对齐 Web 版 body background: #F2E9CA + main_bg）
     createSpriteNode('mainBg', this.node, 0, 720, 1280, 'sprites/bg/main_bg');
     this._mountUiSections();
@@ -181,9 +192,22 @@ export class GameManager extends Component {
 
   protected start(): void {
     // 放在 start：onLoad 里 Widget 尚未对齐，弹窗全屏遮罩会按未定型的尺寸绘制
-    // 离线收益先弹：新手第一次进来没有离线收益，两者实际不会同框
-    OfflineRewardModal.showIfAny(this.node);
-    TutorialOverlay.showIfActive(this.node);
+    // 隐私协议优先：未同意时先弹隐私协议，同意后再弹离线收益/教程
+    const privacyShown = PrivacyConsentModal.showIfNeeded(this.node, {
+      onAgree: () => {
+        // 同意后补弹离线收益和教程
+        OfflineRewardModal.showIfAny(this.node);
+        TutorialOverlay.showIfActive(this.node);
+      },
+      onDecline: () => {
+        // 拒绝后不弹其他弹窗
+      },
+    });
+    if (!privacyShown) {
+      // 已同意过隐私协议，直接弹离线收益和教程
+      OfflineRewardModal.showIfAny(this.node);
+      TutorialOverlay.showIfActive(this.node);
+    }
   }
 
   /** 服务端登录（异步、失败降级为离线模式，不阻塞启动） */

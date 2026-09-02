@@ -1,105 +1,101 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UIOpacity, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../manager/GameManager';
-import { hasOpenBundlePage, openBundlePage, showPageToast } from './bundle-pages';
+import { openBundlePage, showPageToast } from './bundle-pages';
+import { playSfx } from '../manager/AudioManager';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
+import { registerTutorialTarget, unregisterTutorialTarget } from '../core/tutorial-target';
+import { fontManager } from '../core/font-manager';
 
 const { ccclass } = _decorator;
 
+/* ═══ 尺寸（对齐 Web 版 BottomNav.vue，按 720p 设计分辨率缩放） ═══ */
 const BAR_W = 720;
-const BAR_H = 142;
-const TAB_W = 120;
-/** 三行内容（图标 48 + 中文 26 + 英文 18）+ 上下留白 */
-const TAB_H = 108;
-/** 选中态底色 #FFE8C0 */
-const TAB_ACTIVE_BG = new Color(255, 232, 192, 255);
-/** 选中胶囊描边 #E8B87A（比通栏描边深一档，压住底色） */
-const TAB_ACTIVE_BORDER = new Color(232, 184, 122, 255);
-/** 未开放文字 #A0784C */
-const TAB_DIM_TEXT = new Color(160, 120, 76, 255);
-/** 通栏投影（半透明暖棕，垫在栏底下方模拟悬浮） */
-const BAR_SHADOW = new Color(111, 74, 57, 38);
-/** 通栏顶部高光 #FFFDF8 */
-const BAR_HILIGHT = new Color(255, 253, 248, 255);
-/** 选中胶囊投影 */
-const TAB_SHADOW = new Color(180, 130, 80, 46);
-/** 未开放项整体降透明度，和可点项拉开层次 */
-const DIM_OPACITY = 150;
+const BAR_H = 130;
+const TAB_W = 130;
+const ICON_SIZE = 88;
+const LABEL_FONT = 22;
+const EN_FONT = 13;
+/** 选中态凸起卡片 */
+const ACTIVE_CARD_W = 124;
+const ACTIVE_CARD_H = 168;
+const ACTIVE_CARD_RADIUS = 22;
+/** 图标嵌入卡片顶部的距离 */
+const ICON_EMBED = 12;
+/** 图标从通栏顶边向上偏移的距离（选中与未选中一致） */
+const ICON_OFFSET_TOP = 60;
 
-/** 取（或补挂）节点的 UIOpacity——整棵子树一起变淡 */
-function opacityOf(node: Node): UIOpacity {
-  return node.getComponent(UIOpacity) ?? node.addComponent(UIOpacity);
-}
+/* ═══ 颜色（取自 Web 版 CSS） ═══ */
+/** 通栏背景（暖棕黄，对齐 Web #EDCFA7） */
+const BAR_BG = new Color(237, 207, 167, 255);
+/** 选中态卡片渐变：顶部色 #FFF3DC */
+const CARD_GRAD_TOP = new Color(255, 243, 220, 255);
+/** 选中态卡片渐变：底部色 #F5DDB4 */
+const CARD_GRAD_BOTTOM = new Color(245, 221, 180, 255);
+/** 选中态卡片描边 #C4A06A */
+const CARD_BORDER = new Color(196, 160, 106, 255);
+/** 选中态卡片向上投影 rgba(160,120,40,0.2) */
+const CARD_SHADOW = new Color(160, 120, 40, 51);
 
 interface TabPage {
   bundle: string;
   component: string;
 }
 
-/** page: 点击时打开的分包页面 */
-const TABS: ReadonlyArray<{
-  key: string;
-  label: string;
-  en: string;
-  page?: TabPage;
-}> = [
-  { key: 'daily', label: '每日', en: 'Daily', page: { bundle: 'daily', component: 'DailyPageComponent' } },
-  { key: 'collection', label: '图鉴', en: 'Journal', page: { bundle: 'collection', component: 'CollectionPageComponent' } },
-  { key: 'home', label: '首页', en: 'Home' },
-  { key: 'backpack', label: '背包', en: 'Backpack', page: { bundle: 'backpack', component: 'BackpackPageComponent' } },
-  // 商店 tab 固定进 StorePage；盲盒作为它的页内 Tab（受 features.blindbox 控制），
-  // 对齐 Web ShopFullView 的并列双 Tab。早先这里是「盲盒页 or 商店页」二选一，
-  // 开盲盒会把精力钻石档位与装饰物入口顶掉。
-  { key: 'shop', label: '商店', en: 'Shop', page: { bundle: 'store', component: 'StorePageComponent' } },
+/** page: 点击时打开的分包页面；enLabel 对齐 Web 端双语标签 */
+const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: TabPage }> = [
+  {
+    key: 'daily', label: '每日', enLabel: 'Daily',
+    page: { bundle: 'daily', component: 'DailyPageComponent' },
+  },
+  {
+    key: 'collection', label: '图鉴', enLabel: 'Journal',
+    page: { bundle: 'collection', component: 'CollectionPageComponent' },
+  },
+  { key: 'home', label: '首页', enLabel: 'Home' },
+  {
+    key: 'backpack', label: '背包', enLabel: 'Backpack',
+    page: { bundle: 'backpack', component: 'BackpackPageComponent' },
+  },
+  {
+    key: 'shop', label: '商店', enLabel: 'Shop',
+    page: { bundle: 'store', component: 'StorePageComponent' },
+  },
 ];
 
 /**
- * 底部导航（对齐 Web 版 BottomNav.vue 的五格结构）。
- * 首页外的四个 tab 均已接分包页面。
+ * 底部导航（对齐 Web 版 BottomNav.vue）。
+ *
+ * 布局要点：
+ * - 通栏暖米色，顶部圆角，贴屏幕底部
+ * - 图标贴通栏顶边向上凸出，不在 tab 内垂直居中
+ * - 选中态：浅色圆角卡片从通栏顶部凸出，图标坐在卡片上方（微嵌入）
+ * - 未选中态：无卡片，图标直接贴通栏顶边
+ * - 文字（中文+英文）在通栏内，图标下方
+ * - 图标不降透明度，选中态靠卡片+放大+文字加粗区分
  */
 @ccclass('BottomNavComponent')
 export class BottomNavComponent extends Component {
-  /**
-   * 新建一个与通栏同尺寸的子节点并挂上自己的 Graphics。
-   * 宿主节点的 Graphics 已被通栏底占用，投影/高光必须各自独立（见 RUNBOOK 三·六）。
-   */
-  private _addLayer(name: string): Graphics {
-    const node = new Node(name);
-    node.layer = this.node.layer;
-    node.addComponent(UITransform).setContentSize(BAR_W, BAR_H);
-    this.node.addChild(node);
-    return node.addComponent(Graphics);
-  }
-
   protected onLoad(): void {
     const ui = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
     ui.setContentSize(BAR_W, BAR_H);
 
-    // 三层各自独立成子节点，按添加顺序自下而上叠：投影 → 通栏底 → 高光。
-    // 子节点必然渲染在宿主 Graphics 之上，所以通栏底也走子节点，层序才可控。
-    const shadow = this._addLayer('barShadow');
-    shadow.fillColor = BAR_SHADOW;
-    shadow.roundRect(-BAR_W / 2, -BAR_H / 2 - 6, BAR_W, BAR_H, 26);
-    shadow.fill();
+    // 通栏顶边的 y 坐标（节点中心为原点，y 正方向向上）
+    const barTopY = BAR_H / 2;
 
-    // 通栏底
-    const bg = this._addLayer('barBg');
-    bg.fillColor = UI_COLORS.pillBg;
-    bg.roundRect(-BAR_W / 2, -BAR_H / 2, BAR_W, BAR_H, 24);
+    // ── 通栏背景：顶部圆角、底部直角 ──
+    const bg = this.node.addComponent(Graphics);
+    const r = 28;
+    bg.fillColor = BAR_BG;
+    bg.moveTo(-BAR_W / 2, -BAR_H / 2);
+    bg.lineTo(BAR_W / 2, -BAR_H / 2);
+    bg.lineTo(BAR_W / 2, barTopY - r);
+    bg.quadraticCurveTo(BAR_W / 2, barTopY, BAR_W / 2 - r, barTopY);
+    bg.lineTo(-BAR_W / 2 + r, barTopY);
+    bg.quadraticCurveTo(-BAR_W / 2, barTopY, -BAR_W / 2, barTopY - r);
+    bg.lineTo(-BAR_W / 2, -BAR_H / 2);
     bg.fill();
-    bg.lineWidth = 3;
-    bg.strokeColor = UI_COLORS.pillBorder;
-    bg.roundRect(-BAR_W / 2, -BAR_H / 2, BAR_W, BAR_H, 24);
-    bg.stroke();
-
-    // 顶沿高光：一条贴着上边缘的浅色细线，让栏体像有厚度而不是一块平色
-    const hilite = this._addLayer('barHilite');
-    hilite.lineWidth = 2;
-    hilite.strokeColor = BAR_HILIGHT;
-    hilite.moveTo(-BAR_W / 2 + 26, BAR_H / 2 - 2);
-    hilite.lineTo(BAR_W / 2 - 26, BAR_H / 2 - 2);
-    hilite.stroke();
 
     const step = BAR_W / TABS.length;
     for (let i = 0; i < TABS.length; i++) {
@@ -109,82 +105,120 @@ export class BottomNavComponent extends Component {
 
       const tabNode = new Node(`tab_${tab.key}`);
       tabNode.layer = this.node.layer;
-      tabNode.addComponent(UITransform).setContentSize(TAB_W, TAB_H);
-      tabNode.setPosition(new Vec3(x, 4, 0));
+      tabNode.addComponent(UITransform).setContentSize(TAB_W, BAR_H);
+      tabNode.setPosition(new Vec3(x, 0, 0));
       this.node.addChild(tabNode);
 
+      // 选中态：标签页风格（顶部圆角、底部直角与通栏融合、顶部+左右描边）
       if (active) {
-        // 选中态：投影 + 描边胶囊，整体上抬 2pt 做「凸起」观感
-        tabNode.setPosition(new Vec3(x, 6, 0));
+        const iconTopY = barTopY + ICON_OFFSET_TOP;
+        const cardTopY = iconTopY + ICON_EMBED;
+        const cardBottomY = cardTopY - ACTIVE_CARD_H;
+        const cr = ACTIVE_CARD_RADIUS;
+        const cw = ACTIVE_CARD_W;
 
-        const tabShadow = tabNode.addComponent(Graphics);
-        tabShadow.fillColor = TAB_SHADOW;
-        tabShadow.roundRect(-TAB_W / 2, -TAB_H / 2 - 4, TAB_W, TAB_H, 18);
-        tabShadow.fill();
-
-        const pill = new Node('activePill');
-        pill.layer = tabNode.layer;
-        pill.addComponent(UITransform).setContentSize(TAB_W, TAB_H);
-        tabNode.addChild(pill);
-        const g = pill.addComponent(Graphics);
-        g.fillColor = TAB_ACTIVE_BG;
-        g.roundRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 18);
+        // 卡片填充（#FFF3DC，不透明）
+        const g = tabNode.addComponent(Graphics);
+        g.fillColor = new Color(255, 243, 220, 255);
+        // 顶部圆角、底部直角
+        g.moveTo(-cw / 2, cardBottomY);
+        g.lineTo(cw / 2, cardBottomY);
+        g.lineTo(cw / 2, cardTopY - cr);
+        g.quadraticCurveTo(cw / 2, cardTopY, cw / 2 - cr, cardTopY);
+        g.lineTo(-cw / 2 + cr, cardTopY);
+        g.quadraticCurveTo(-cw / 2, cardTopY, -cw / 2, cardTopY - cr);
+        g.lineTo(-cw / 2, cardBottomY);
         g.fill();
-        g.lineWidth = 2;
-        g.strokeColor = TAB_ACTIVE_BORDER;
-        g.roundRect(-TAB_W / 2, -TAB_H / 2, TAB_W, TAB_H, 18);
+
+        // 描边：仅顶部 + 左右（#C4A06A，不透明，底部不画与通栏融合）
+        g.lineWidth = 3;
+        g.strokeColor = new Color(196, 160, 106, 255);
+        g.moveTo(-cw / 2, cardBottomY);
+        g.lineTo(-cw / 2, cardTopY - cr);
+        g.quadraticCurveTo(-cw / 2, cardTopY, -cw / 2 + cr, cardTopY);
+        g.lineTo(cw / 2 - cr, cardTopY);
+        g.quadraticCurveTo(cw / 2, cardTopY, cw / 2, cardTopY - cr);
+        g.lineTo(cw / 2, cardBottomY);
         g.stroke();
-      } else if (!tab.page) {
-        // 未开放玩法整体降透明度（图标同步变淡，仅靠文字色区分不够明显）
-        tabNode.setPosition(new Vec3(x, 2, 0));
-        opacityOf(tabNode).opacity = DIM_OPACITY;
       }
 
-      // 图标 + 中文 + 英文小字三行，纵向让位后整体上移
-      createSpriteNode('icon', tabNode, tabNode.children.length, 48, 48,
-        `sprites/ui/nav/nav_${tab.key}`, new Vec3(0, 22, 0));
+      // 图标：选中与未选中大小、位置完全一致
+      const iconTopY = barTopY + ICON_OFFSET_TOP;
+      const iconCenterY = iconTopY - ICON_SIZE / 2;
+      createSpriteNode('icon', tabNode, tabNode.children.length, ICON_SIZE, ICON_SIZE,
+        `sprites/ui/nav/nav_${tab.key}`, new Vec3(0, iconCenterY, 0));
 
-      const textColor = active || tab.page ? UI_COLORS.textBrown : TAB_DIM_TEXT;
-
+      // 中文主标签（卡片内/通栏内，往上移）
       const labelNode = new Node('label');
-      labelNode.layer = this.node.layer;
+      labelNode.layer = tabNode.layer;
       labelNode.addComponent(UITransform);
-      labelNode.setPosition(new Vec3(0, -16, 0));
+      labelNode.setPosition(new Vec3(0, 11, 0));
       tabNode.addChild(labelNode);
       const label = labelNode.addComponent(Label);
       label.string = tab.label;
-      label.fontSize = active ? 23 : 21;
+      label.fontSize = LABEL_FONT;
       label.lineHeight = 26;
       label.isBold = active;
-      label.color = textColor;
+      label.color = active ? UI_COLORS.titleBrown : UI_COLORS.subTextBrown;
 
-      // 英文副标（设计稿：中文下方一行小字）
-      const enNode = new Node('labelEn');
-      enNode.layer = this.node.layer;
+      // 英文副标题
+      const enNode = new Node('enLabel');
+      enNode.layer = tabNode.layer;
       enNode.addComponent(UITransform);
-      enNode.setPosition(new Vec3(0, -38, 0));
+      enNode.setPosition(new Vec3(0, -13, 0));
       tabNode.addChild(enNode);
       const enLabel = enNode.addComponent(Label);
-      enLabel.string = tab.en;
-      enLabel.fontSize = 15;
-      enLabel.lineHeight = 18;
-      enLabel.isBold = active;
-      enLabel.color = textColor;
+      enLabel.string = tab.enLabel;
+      enLabel.fontSize = EN_FONT;
+      enLabel.lineHeight = 16;
+      enLabel.isBold = false;
+      enLabel.color = active ? UI_COLORS.subTextBrown : new Color(155, 123, 90, 160);
 
-      // 点击走全局输入版点击区（节点触摸事件在本项目收不到，见 tap-zone.ts）
+      // 点击走全局输入版点击区
       const tabKey = tab.key;
       const staticPage = tab.page;
       if (tabKey !== 'home') {
-        const zone = tabNode.addComponent(TapZoneComponent);
+        // 独立命中区：覆盖凸出的图标（顶端 y=125）+ 双行文字（底部 y≈-21）。
+        // 中心上移到 y=50、高 220 → 范围 y∈[-60,160]，图标顶端留 35px 余量，
+        // 避免 TapZoneComponent 在 touchEnd 二次命中检测时因手指微移而漏触发。
+        // 宽度取 step(144) 让相邻 tab 命中区无缝衔接，消除间隙死区。
+        const hitArea = new Node('hitArea');
+        hitArea.layer = tabNode.layer;
+        hitArea.addComponent(UITransform).setContentSize(step, 220);
+        hitArea.setPosition(new Vec3(0, 50, 0));
+        tabNode.addChild(hitArea);
+        // 注册新手引导目标：用实际可点击区域 hitArea（覆盖凸出的图标+文字），
+        // 而非 tabNode（仅通栏内区域，中心偏低会漏掉上方图标）
+        if (tab.key === 'daily') {
+          registerTutorialTarget('nav-daily', hitArea);
+        }
+        const zone = hitArea.addComponent(TapZoneComponent);
+        zone.debugName = `nav-${tabKey}`;
         zone.onTap = () => {
+          playSfx('click');
           const canvas = this.node.parent;
-          if (!canvas || hasOpenBundlePage(canvas)) return;
+          if (!canvas) return;
           // 引导最后一步是「点每日签到」，进页即算完成
           if (tabKey === 'daily') GameManager.instance.completeTutorialStep('dailyCheckIn');
-          if (staticPage) openBundlePage(canvas, staticPage.bundle, staticPage.component);
-          else showPageToast(canvas, `「${tab.label}」玩法开发中，敬请期待`);
+          // 先关闭已有的弹窗/分包页面，实现 tab 间切换（不必手动关一个再开另一个）
+          for (const child of canvas.children) {
+            if (child.isValid && (child.name.startsWith('BundlePage_') || child.name.startsWith('Modal_'))) {
+              child.destroy();
+            }
+          }
+          if (staticPage) {
+            openBundlePage(canvas, staticPage.bundle, staticPage.component);
+          } else {
+            showPageToast(canvas, `「${tab.label}」还在准备中，敬请期待呀`);
+          }
         };
       }
     }
+
+    fontManager.applyFontToTree(this.node);
+  }
+
+  protected onDestroy(): void {
+    unregisterTutorialTarget('nav-daily');
   }
 }

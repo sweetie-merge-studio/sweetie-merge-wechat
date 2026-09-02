@@ -77,6 +77,7 @@ export interface BlindBoxResult {
 
 /** 存档数据 */
 export interface SaveData {
+  version?: number; // 存档版本号（旧存档无此字段，视为 v0）
   board: Array<{ itemId?: ItemId }>;
   energy: EnergyState;
   economy: EconomyState;

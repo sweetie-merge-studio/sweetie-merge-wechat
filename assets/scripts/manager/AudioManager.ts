@@ -8,7 +8,7 @@ import { AudioClip, AudioSource, Node, resources } from 'cc';
  * - 声音开关沿用 Web 版的存档键 `setting_sound`（布尔），默认开。
  */
 
-type SfxName = 'merge' | 'order_complete';
+type SfxName = 'merge' | 'order_complete' | 'click' | 'popup_close' | 'popup_open' | 'level_up' | 'coin' | 'error' | 'success';
 
 let _sfxSource: AudioSource | null = null;
 let _bgmSource: AudioSource | null = null;

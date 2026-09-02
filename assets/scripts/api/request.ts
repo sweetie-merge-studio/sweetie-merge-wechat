@@ -1,7 +1,10 @@
 /**
  * HTTP 请求封装 — 微信小游戏版
  * 使用 wx.request 替代 fetch，wx.setStorageSync 替代 localStorage
+ * 网络状态统一由 platform/network.ts 管理，避免与 offline-queue 各自维护导致不一致
  */
+
+import { isOnline, setOnlineStatus, initNetworkListener } from '../platform/network';
 
 const TOKEN_KEY = 'sweetie_jwt';
 
@@ -65,25 +68,9 @@ export class OfflineError extends Error {
   }
 }
 
-// --- 网络状态 ---
+// --- 网络状态（统一由 platform/network.ts 管理，此处 re-export 保持接口兼容） ---
 
-let _isOnline = true;
-
-export function setOnlineStatus(online: boolean): void {
-  _isOnline = online;
-}
-
-/** 初始化网络监听（在 app 启动时调用一次） */
-export function initNetworkListener(): void {
-  wx.getNetworkType({
-    success(res) {
-      _isOnline = res.networkType !== 'none';
-    },
-  });
-  wx.onNetworkStatusChange((res) => {
-    _isOnline = res.isConnected;
-  });
-}
+export { isOnline, setOnlineStatus, initNetworkListener };
 
 // --- 核心请求 ---
 
@@ -100,7 +87,7 @@ export function request<T>(
   opts: RequestOptions = {},
 ): Promise<T> {
   // 离线检测
-  if (!_isOnline) {
+  if (!isOnline()) {
     if (opts.offlineSilent) return Promise.resolve(null as T);
     return Promise.reject(new OfflineError());
   }

@@ -1,50 +1,108 @@
-import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransform, Vec3, Widget } from 'cc';
 
 import type { EconomyState, EnergyState } from '../core/types';
 import { GameManager } from '../manager/GameManager';
-import { openBundlePage, hasOpenBundlePage, showPageToast } from './bundle-pages';
+import { createSpriteNode, createLabel, UI_COLORS } from './ui-factory';
+import { registerTutorialTarget, unregisterTutorialTarget } from '../core/tutorial-target';
 import { TapZoneComponent } from './tap-zone';
-import { createRoundRectNode, createSpriteNode, UI_COLORS } from './ui-factory';
+import { openBundlePage, showPageToast } from './bundle-pages';
+import { SettingsModal } from './SettingsModal';
+import { EnergyAdModal } from './EnergyAdModal';
+import { getSectionTops } from './layout';
+import { playSfx } from '../manager/AudioManager';
+import { fontManager } from '../core/font-manager';
 
 const { ccclass, property } = _decorator;
 
-const PILL_WIDTH = 170;
-const PILL_HEIGHT = 46;
-const ICON_SIZE = 30;
-/** 图标在药丸内的横向偏移（相对 label 节点中心，贴药丸左缘避免压字） */
-const ICON_OFFSET_X = -66;
+/* ═══ 尺寸（对齐 Web 版 StatusBar.vue，按 720p 设计分辨率缩放） ═══ */
+const TOP_BAR_H = 60;
+const PILL_H = 38;
+const PILL_RADIUS = PILL_H / 2;
+const ICON_SIZE = 28;
+const PLUS_SIZE = 28;
+const SETTINGS_SIZE = 40;
+const GAP = 8;
+const PILL_PAD_X = 10;
+/** 药丸组左边距（左对齐，右侧让给微信胶囊按钮） */
+const LEFT_PAD = 20;
 
-/** 「+」圆钮：骑在药丸右缘上（一半探出药丸外，对齐设计稿） */
-const PLUS_SIZE = 30;
-const PLUS_OFFSET_X = PILL_WIDTH / 2;
-/** 「+」按钮橙 #EFA23C（与订单领取按钮同色系） */
-const PLUS_BG = new Color(239, 162, 60, 255);
-/** 右上角设置齿轮 */
-const GEAR_SIZE = 40;
-/** 齿轮占位后，三个药丸整体左移的距离（避免金币「+」与齿轮相撞） */
-const PILL_SHIFT_X = -46;
+/* 各药丸固定宽度（文字用 SHRINK 自适应） */
+const ENERGY_PILL_W = 156;
+const DIA_PILL_W = 128;
+const GOLD_PILL_W = 116;
+
+/* ═══ 颜色（取自 Web 版 CSS） ═══ */
+/** 顶栏底色（透明，让全屏主背景图片透出） */
+const TOP_BAR_BG = new Color(232, 200, 156, 0);
+/** 药丸底 #FFF8EE */
+const PILL_BG = new Color(255, 248, 238, 255);
+/** 药丸描边 #D4C0A0 */
+const PILL_BORDER = new Color(212, 192, 160, 255);
+/** 精力药丸底（渐变下端 #F5E0B8） */
+const ENERGY_PILL_BG = new Color(245, 224, 184, 255);
+/** 精力药丸描边 #C4A87A */
+const ENERGY_PILL_BORDER = new Color(196, 168, 122, 255);
+/** 正文深棕 #5C3A1E */
+const TEXT_COLOR = new Color(92, 58, 30, 255);
+/** 精力 + 按钮 #E8941A */
+const PLUS_ENERGY_BG = new Color(232, 148, 26, 255);
+/** 钻石 + 按钮 #C4956A */
+const PLUS_DIA_BG = new Color(196, 149, 106, 255);
+
+interface PillEntry {
+  key: 'energy' | 'dia' | 'gold';
+  width: number;
+  iconPath: string;
+  hasPlus: boolean;
+  plusColor: Color;
+}
+
+const PILL_ENTRIES: PillEntry[] = [
+  { key: 'energy', width: ENERGY_PILL_W, iconPath: 'sprites/ui/energy_bolt', hasPlus: true, plusColor: PLUS_ENERGY_BG },
+  { key: 'dia', width: DIA_PILL_W, iconPath: 'sprites/currency/diamond', hasPlus: true, plusColor: PLUS_DIA_BG },
+  { key: 'gold', width: GOLD_PILL_W, iconPath: 'sprites/currency/coin', hasPlus: false, plusColor: PLUS_ENERGY_BG },
+];
 
 /**
- * 顶部状态栏：金币 / 钻石 / 精力。
- *
- * 三个 Label 由场景绑定；药丸底板与资源图标在运行时动态构建，
- * 视觉对齐 Web 版 StatusBar.vue 的 .pill 规范。
+ * 顶部状态栏（对齐 Web 版 StatusBar.vue）：
+ * 顶栏渐变底 + 三枚药丸（精力/钻石/金币）+ 精力&钻石 +按钮 + 设置按钮。
+ * 场景中绑定的 Label 仅作数据占位，实际 UI 由代码构建。
  */
 @ccclass('StatusBarComponent')
 export class StatusBarComponent extends Component {
-  @property({ type: Label, tooltip: '金币显示 Label' })
+  /** 当前激活的状态栏实例（供 coin-fly 等全局特效查询金币图标坐标） */
+  private static _instance: StatusBarComponent | null = null;
+
+  /** 获取状态栏金币图标的世界坐标，未就绪返回 null */
+  static getGoldIconWorldPos(): Vec3 | null {
+    const inst = StatusBarComponent._instance;
+    if (!inst?.isValid || !inst._goldPillNode?.isValid) return null;
+    // 金币图标位于药丸左侧，取药丸中心偏左作为飞行终点
+    const worldPos = inst._goldPillNode.getWorldPosition();
+    return new Vec3(worldPos.x - 30, worldPos.y, worldPos.z);
+  }
+
+  @property({ type: Label, tooltip: '金币显示 Label（场景绑定，运行时隐藏）' })
   coinsLabel: Label | null = null;
 
-  @property({ type: Label, tooltip: '钻石显示 Label' })
+  @property({ type: Label, tooltip: '钻石显示 Label（场景绑定，运行时隐藏）' })
   diamondsLabel: Label | null = null;
 
-  @property({ type: Label, tooltip: '精力显示 Label，例如 32/100' })
+  @property({ type: Label, tooltip: '精力显示 Label（场景绑定，运行时隐藏）' })
   energyLabel: Label | null = null;
 
-  private _decorated = false;
+  private _energyVal: Label | null = null;
+  private _diaVal: Label | null = null;
+  private _goldVal: Label | null = null;
+  private _energyPillNode: Node | null = null;
+  private _goldPillNode: Node | null = null;
+  private _built = false;
+  /** StatusBar 节点顶部距屏幕顶端的距离（设计单位），背景需向上延伸这么多以贴顶 */
+  private _topInset = 0;
 
   protected onEnable(): void {
-    this._decorateOnce();
+    StatusBarComponent._instance = this;
+    this._buildOnce();
     const gm = GameManager.instance;
     gm.events.on('energy:changed', this._onEnergyChanged);
     gm.events.on('economy:changed', this._onEconomyChanged);
@@ -53,114 +111,228 @@ export class StatusBarComponent extends Component {
   }
 
   protected onDisable(): void {
+    if (StatusBarComponent._instance === this) {
+      StatusBarComponent._instance = null;
+    }
     const gm = GameManager.instance;
     gm.events.off('energy:changed', this._onEnergyChanged);
     gm.events.off('economy:changed', this._onEconomyChanged);
     gm.events.off('save:loaded', this._refreshAll);
+    unregisterTutorialTarget('statusbar-energy');
   }
 
-  /** 为三个 Label 构建药丸底板与图标（仅一次） */
-  private _decorateOnce(): void {
-    if (this._decorated) return;
-    this._decorated = true;
+  /** 构建完整顶栏 UI（仅一次） */
+  private _buildOnce(): void {
+    if (this._built) return;
+    this._built = true;
 
-    const entries: Array<{ label: Label | null; icon: string; plus: 'shop' | 'energy' }> = [
-      { label: this.coinsLabel, icon: 'sprites/currency/coin', plus: 'shop' },
-      { label: this.diamondsLabel, icon: 'sprites/currency/diamond', plus: 'shop' },
-      { label: this.energyLabel, icon: 'sprites/ui/energy_bolt', plus: 'energy' },
-    ];
-
-    for (const { label, icon, plus } of entries) {
-      if (!label) continue;
-      const labelNode = label.node;
-      const labelIndex = labelNode.getSiblingIndex();
-      // 整排左移，给右上角齿轮腾位（药丸/图标/文字/「+」都以此为基准）
-      const pillPos = labelNode.getPosition().clone().add(new Vec3(PILL_SHIFT_X, 0, 0));
-      // 药丸底板插到 label 之前（渲染在文字下方）
-      createRoundRectNode(
-        `${labelNode.name}_pill`, this.node, labelIndex,
-        PILL_WIDTH, PILL_HEIGHT, PILL_HEIGHT / 2,
-        UI_COLORS.pillBg, UI_COLORS.pillBorder,
-        pillPos,
-      );
-      // 图标放在药丸左侧、文字上层
-      const iconPos = pillPos.clone().add(new Vec3(ICON_OFFSET_X, 0, 0));
-      createSpriteNode(
-        `${labelNode.name}_icon`, this.node, labelNode.getSiblingIndex() + 1,
-        ICON_SIZE, ICON_SIZE, icon, iconPos,
-      );
-      // 文字紧跟图标左对齐，长短数字都不会压到图标
-      labelNode.getComponent(UITransform)?.setAnchorPoint(0, 0.5);
-      labelNode.setPosition(new Vec3(pillPos.x + ICON_OFFSET_X + ICON_SIZE / 2 + 8, pillPos.y, 0));
-      label.horizontalAlign = Label.HorizontalAlign.LEFT;
-      label.color = UI_COLORS.textBrown;
-      label.isBold = true;
-
-      this._buildPlusButton(labelNode.name, pillPos, plus);
+    // 隐藏场景中绑定的占位 Label
+    for (const lbl of [this.coinsLabel, this.diamondsLabel, this.energyLabel]) {
+      if (lbl) lbl.node.active = false;
     }
 
-    this._buildGearButton();
+    const ui = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
+    const barW = ui.width > 0 ? ui.width : 720;
+
+    // StatusBar 节点被锚定在距屏幕顶端 _topInset 处，
+    // 背景向上延伸这段距离贴顶，药丸位于内容区垂直中心。
+    this._topInset = getSectionTops().statusBar;
+    const totalH = this._topInset + TOP_BAR_H;
+    const contentY = -this._topInset / 2; // 药丸区域相对于 topBar 中心的偏移
+
+    // ── 顶栏底板（渐变底 + 底部圆角 + 阴影），向上延伸至屏幕顶端 ──
+    const bar = new Node('topBar');
+    bar.layer = this.node.layer;
+    bar.addComponent(UITransform).setContentSize(barW, totalH);
+    this.node.addChild(bar);
+    const barWg = bar.addComponent(Widget);
+    barWg.isAlignTop = true;
+    barWg.isAlignLeft = true;
+    barWg.isAlignRight = true;
+    barWg.top = -this._topInset;
+    barWg.left = 0;
+    barWg.right = 0;
+    barWg.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+
+    // 主底板（底部圆角，顶部直角贴屏幕顶）
+    const bg = new Node('topBarBg');
+    bg.layer = bar.layer;
+    bg.addComponent(UITransform).setContentSize(barW, totalH);
+    bar.addChild(bg);
+    const bgG = bg.addComponent(Graphics);
+    bgG.fillColor = TOP_BAR_BG;
+    // 手动画底部圆角矩形（顶部直角），高度覆盖延伸区 + 内容区
+    const r = 16;
+    bgG.moveTo(-barW / 2, totalH / 2);
+    bgG.lineTo(barW / 2, totalH / 2);
+    bgG.lineTo(barW / 2, -totalH / 2 + r);
+    bgG.quadraticCurveTo(barW / 2, -totalH / 2, barW / 2 - r, -totalH / 2);
+    bgG.lineTo(-barW / 2 + r, -totalH / 2);
+    bgG.quadraticCurveTo(-barW / 2, -totalH / 2, -barW / 2, -totalH / 2 + r);
+    bgG.lineTo(-barW / 2, totalH / 2);
+    bgG.fill();
+
+    // ── 药丸 + 设置按钮，左对齐排列（右侧让给微信胶囊按钮），垂直位于内容区中心 ──
+    let cursorX = -barW / 2 + LEFT_PAD;
+
+    for (const entry of PILL_ENTRIES) {
+      const pillX = cursorX + entry.width / 2;
+      const pillNode = this._buildPill(bar, entry, pillX, contentY);
+      if (entry.key === 'energy') this._energyPillNode = pillNode;
+      else if (entry.key === 'gold') this._goldPillNode = pillNode;
+      cursorX += entry.width + GAP;
+    }
+
+    // 设置按钮（药丸组右侧）
+    const settingsX = cursorX + SETTINGS_SIZE / 2;
+    this._buildSettingsButton(bar, settingsX, contentY);
+
+    fontManager.applyFontToTree(this.node);
   }
 
-  /** 药丸右端的橙色「+」圆钮：金币/钻石进商店，精力提示（补给玩法未就绪） */
-  private _buildPlusButton(ownerName: string, pillPos: Vec3, kind: 'shop' | 'energy'): void {
-    const pos = pillPos.clone().add(new Vec3(PLUS_OFFSET_X, 0, 0));
-    const node = createRoundRectNode(
-      `${ownerName}_plus`, this.node, this.node.children.length,
-      PLUS_SIZE, PLUS_SIZE, PLUS_SIZE / 2,
-      PLUS_BG, undefined, pos,
-    );
+  /** 构建单枚药丸 */
+  private _buildPill(parent: Node, entry: PillEntry, x: number, y: number): Node {
+    const isEnergy = entry.key === 'energy';
+    const bgColor = isEnergy ? ENERGY_PILL_BG : PILL_BG;
+    const borderColor = isEnergy ? ENERGY_PILL_BORDER : PILL_BORDER;
 
-    // 「+」十字画在独立子节点上：createRoundRectNode 已在 node 上用掉了 Graphics，
-    // 复用同一实例会让圆底的 fill 与十字的 stroke 互相干扰
-    const cross = new Node('plusCross');
-    cross.layer = node.layer;
-    cross.addComponent(UITransform).setContentSize(PLUS_SIZE, PLUS_SIZE);
-    node.addChild(cross);
-    const g = cross.addComponent(Graphics);
-    g.lineWidth = 3.5;
-    g.strokeColor = Color.WHITE;
-    const arm = PLUS_SIZE / 4;
-    g.moveTo(-arm, 0); g.lineTo(arm, 0);
-    g.moveTo(0, -arm); g.lineTo(0, arm);
+    const pill = new Node(`pill_${entry.key}`);
+    pill.layer = parent.layer;
+    pill.addComponent(UITransform).setContentSize(entry.width, PILL_H);
+    pill.setPosition(new Vec3(x, y, 0));
+    parent.addChild(pill);
+
+    const g = pill.addComponent(Graphics);
+    g.fillColor = bgColor;
+    g.roundRect(-entry.width / 2, -PILL_H / 2, entry.width, PILL_H, PILL_RADIUS);
+    g.fill();
+    g.lineWidth = 2;
+    g.strokeColor = borderColor;
+    g.roundRect(-entry.width / 2, -PILL_H / 2, entry.width, PILL_H, PILL_RADIUS);
     g.stroke();
 
-    const zone = node.addComponent(TapZoneComponent);
-    zone.onTap = () => {
-      const canvas = this.node.parent;
-      if (!canvas || hasOpenBundlePage(canvas)) return;
-      if (kind === 'shop') openBundlePage(canvas, 'blindbox', 'BlindboxPageComponent');
-      else showPageToast(canvas, '精力补给开发中，敬请期待');
-    };
-  }
+    // 新手引导目标：精力药丸
+    if (isEnergy) {
+      registerTutorialTarget('statusbar-energy', pill);
+    }
 
-  /** 右上角设置齿轮（设置面板未就绪，先提示） */
-  private _buildGearButton(): void {
-    const ui = this.node.getComponent(UITransform);
-    const halfW = (ui?.width ?? 720) / 2;
-    const pos = new Vec3(halfW - GEAR_SIZE / 2 - 12, 0, 0);
-    const node = createSpriteNode(
-      'settings_gear', this.node, this.node.children.length,
-      GEAR_SIZE, GEAR_SIZE, 'sprites/ui/settings', pos,
+    // 图标（贴药丸左侧，统一使用图片资源，与 Web 版一致）
+    const iconX = -entry.width / 2 + PILL_PAD_X + ICON_SIZE / 2;
+    createSpriteNode(
+      `icon_${entry.key}`, pill, pill.children.length,
+      ICON_SIZE, ICON_SIZE, entry.iconPath,
+      new Vec3(iconX, 0, 0),
     );
-    const zone = node.addComponent(TapZoneComponent);
-    zone.onTap = () => {
+
+    // 数值 Label（图标右侧，左对齐，Shrink 自适应，自动应用圆润可爱字体）
+    const textX = iconX + ICON_SIZE / 2 + 6;
+    const textRight = entry.hasPlus
+      ? entry.width / 2 - PILL_PAD_X - PLUS_SIZE - 4
+      : entry.width / 2 - PILL_PAD_X;
+    const textW = Math.max(20, textRight - textX);
+
+    const label = createLabel(
+      'val', pill, pill.children.length,
+      textW, PILL_H - 6,
+      new Vec3(textX, 0, 0),
+      {
+        fontSize: 20,
+        lineHeight: 24,
+        isBold: true,
+        color: TEXT_COLOR,
+        horizontalAlign: Label.HorizontalAlign.LEFT,
+        overflow: Label.Overflow.SHRINK,
+        anchorX: 0,
+      },
+    );
+
+    if (entry.key === 'energy') this._energyVal = label;
+    else if (entry.key === 'dia') this._diaVal = label;
+    else this._goldVal = label;
+
+    // + 按钮
+    if (entry.hasPlus) {
+      const plusX = entry.width / 2 - PILL_PAD_X - PLUS_SIZE / 2;
+      const plus = new Node('plus');
+      plus.layer = pill.layer;
+      plus.addComponent(UITransform).setContentSize(PLUS_SIZE, PLUS_SIZE);
+      plus.setPosition(new Vec3(plusX, 0, 0));
+      pill.addChild(plus);
+      const pg = plus.addComponent(Graphics);
+      // 加号（无圆形底，避免药丸右端出现突兀的"圆点"）
+      pg.lineWidth = 3;
+      pg.lineCap = Graphics.LineCap.ROUND;
+      pg.strokeColor = new Color(140, 100, 60, 255);
+      const arm = PLUS_SIZE * 0.22;
+      pg.moveTo(-arm, 0);
+      pg.lineTo(arm, 0);
+      pg.moveTo(0, -arm);
+      pg.lineTo(0, arm);
+      pg.stroke();
+      // 点击：精力加号弹广告补精力弹窗，钻石加号打开商店
+      plus.addComponent(TapZoneComponent).onTap = () => {
+        playSfx('click');
+        const canvas = this.node.parent;
+        if (!canvas) return;
+        if (isEnergy) {
+          const energy = GameManager.instance.energy;
+          if (energy.current >= energy.max) {
+            showPageToast(canvas, '精力已满啦');
+          } else {
+            EnergyAdModal.show(canvas);
+          }
+        } else {
+          openBundlePage(canvas, 'store', 'StorePageComponent');
+        }
+      };
+    }
+
+    return pill;
+  }
+
+  /** 构建设置按钮 */
+  private _buildSettingsButton(parent: Node, x: number, y: number): void {
+    const btn = new Node('settingsBtn');
+    btn.layer = parent.layer;
+    btn.addComponent(UITransform).setContentSize(SETTINGS_SIZE, SETTINGS_SIZE);
+    btn.setPosition(new Vec3(x, y, 0));
+    parent.addChild(btn);
+
+    const g = btn.addComponent(Graphics);
+    g.fillColor = PILL_BG;
+    g.circle(0, 0, SETTINGS_SIZE / 2);
+    g.fill();
+    g.lineWidth = 2;
+    g.strokeColor = PILL_BORDER;
+    g.circle(0, 0, SETTINGS_SIZE / 2);
+    g.stroke();
+
+    createSpriteNode(
+      'settingsIcon', btn, btn.children.length,
+      24, 24, 'sprites/ui/settings',
+      new Vec3(0, 0, 0),
+    );
+
+    btn.addComponent(TapZoneComponent).onTap = () => {
+      playSfx('click');
       const canvas = this.node.parent;
-      if (!canvas || hasOpenBundlePage(canvas)) return;
-      showPageToast(canvas, '设置面板开发中，敬请期待');
+      if (canvas) {
+        SettingsModal.show(canvas);
+      }
     };
   }
 
-  // 数字纯文本，资源含义由图标表达（对齐 Web 版 pill：icon + 数字）
+  // ── 数据刷新 ──
+
   private _onEnergyChanged = (energy: EnergyState): void => {
-    if (this.energyLabel) {
-      this.energyLabel.string = `${Math.floor(energy.current)}/${energy.max}`;
+    if (this._energyVal) {
+      this._energyVal.string = `${Math.floor(energy.current)}/${energy.max}`;
     }
   };
 
   private _onEconomyChanged = (eco: EconomyState): void => {
-    if (this.coinsLabel) this.coinsLabel.string = String(eco.coins);
-    if (this.diamondsLabel) this.diamondsLabel.string = String(eco.diamonds);
+    if (this._goldVal) this._goldVal.string = String(eco.coins);
+    if (this._diaVal) this._diaVal.string = String(eco.diamonds);
   };
 
   private _refreshAll = (): void => {
@@ -168,4 +340,5 @@ export class StatusBarComponent extends Component {
     this._onEnergyChanged(gm.energy);
     this._onEconomyChanged(gm.economy);
   };
+
 }
