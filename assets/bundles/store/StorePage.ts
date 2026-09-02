@@ -1,7 +1,7 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { AD_DIAMOND_REWARD, GameManager } from '../../scripts/manager/GameManager';
-import { addAlignedWidget, createPageChrome, mountBundleSection, showPageToast } from '../../scripts/components/bundle-pages';
+import { addAlignedWidget, mountBundleSection, showPageToast } from '../../scripts/components/bundle-pages';
 import { createScrollView, type ScrollView } from '../../scripts/components/drag-scroll';
 import { buildSegmentedTabs, type SegmentDef } from '../../scripts/components/segmented-tabs';
 import { isPlaced } from '../../scripts/core/bakery';
@@ -12,12 +12,8 @@ import { getConfig } from '../../scripts/core/config';
 
 const { ccclass } = _decorator;
 
-const PAGE_W = 720;
-const MARGIN = 40;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-
-/** 内容区可视高度（画布 1280 − 顶部 250 − 底部导航留白） */
-const VIEW_H = 860;
+/** 内容区宽度（弹窗 body 宽 660 - 左右各 20 边距 = 620） */
+const CONTENT_W = 620;
 
 const ROW_H = 100;
 const ROW_GAP = 12;
@@ -59,6 +55,7 @@ export class StorePageComponent extends Component {
   private _content: Node | null = null;
   private _scroll: ScrollView | null = null;
   private _tabRow: Node | null = null;
+  private _viewH = 800;
   private _activeTab: ShopTab = 'store';
   private _busy = false;
   private readonly _onChanged = (): void => {
@@ -67,32 +64,37 @@ export class StorePageComponent extends Component {
   };
 
   protected onLoad(): void {
-    createPageChrome(this.node, '商店');
-
     const gm = GameManager.instance;
     gm.events.on('economy:changed', this._onChanged);
     gm.events.on('energy:changed', this._onChanged);
     // 金币换精力有每日次数上限，次数变化要刷新按钮
     gm.events.on('daily:changed', this._onChanged);
 
-    // 开了 shopDeco 后内容会超过一屏，套滚动区（项目节点触摸链路失效，
-    // 用不了 Cocos ScrollView，见 drag-scroll.ts）
-    const viewport = new Node('viewport');
-    viewport.layer = this.node.layer;
-    viewport.addComponent(UITransform).setContentSize(CONTENT_W, VIEW_H);
-    this.node.addChild(viewport);
-    addAlignedWidget(viewport, { isAlignTop: true, top: 250 });
-
-    this._scroll = createScrollView(viewport, CONTENT_W, VIEW_H);
-    this._content = this._scroll.content;
+    const bodyUi = this.node.getComponent(UITransform)!;
+    const bodyH = bodyUi.height;
 
     // 盲盒未开放时不出 Tab 条，页面退化成纯商店（与开关关闭时的旧行为一致）
-    if (getConfig().features.blindbox) {
+    const hasTab = getConfig().features.blindbox;
+    const contentTop = hasTab ? 86 : 8;
+    const viewH = Math.max(1, bodyH - contentTop - 20);
+    this._viewH = viewH;
+
+    // 滚动区
+    const viewport = new Node('viewport');
+    viewport.layer = this.node.layer;
+    viewport.addComponent(UITransform).setContentSize(CONTENT_W, viewH);
+    this.node.addChild(viewport);
+    addAlignedWidget(viewport, { isAlignTop: true, top: contentTop });
+
+    this._scroll = createScrollView(viewport, CONTENT_W, viewH);
+    this._content = this._scroll.content;
+
+    if (hasTab) {
       const tabRow = new Node('tabRow');
       tabRow.layer = this.node.layer;
       tabRow.addComponent(UITransform).setContentSize(CONTENT_W, 68);
       this.node.addChild(tabRow);
-      addAlignedWidget(tabRow, { isAlignTop: true, top: 170 });
+      addAlignedWidget(tabRow, { isAlignTop: true, top: 8 });
       this._tabRow = tabRow;
       this._renderTabs();
     }
@@ -124,7 +126,7 @@ export class StorePageComponent extends Component {
       return;
     }
     // 盲盒页自己管高度，这里按可视高处理（不滚动）
-    this._scroll?.setContentHeight(VIEW_H);
+    this._scroll?.setContentHeight(this._viewH);
     // 盲盒是独立分包，首次切换要等加载；失败则退回商店 tab
     mountBundleSection(content, 'blindbox', 'BlindboxPageComponent', () => {
       showPageToast(this.node, '盲盒加载失败，请稍后再试');
@@ -172,7 +174,7 @@ export class StorePageComponent extends Component {
 
     const gm = GameManager.instance;
     // 内容自顶部往下排；总高在末尾回报给滚动区
-    const top = VIEW_H / 2;
+    const top = this._viewH / 2;
 
     this._buildLabel(
       content,
@@ -214,7 +216,7 @@ export class StorePageComponent extends Component {
     }
 
     // y 从 VIEW_H/2 往下走到负值，走过的距离即内容总高（末尾留一点底部余量）
-    this._scroll?.setContentHeight(VIEW_H / 2 - y + 24);
+    this._scroll?.setContentHeight(this._viewH / 2 - y + 24);
   }
 
   /** 装饰物一行：图标 + 名称/效果 + 购买（已购则显示状态） */

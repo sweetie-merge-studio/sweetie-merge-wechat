@@ -1,7 +1,7 @@
 import { _decorator, Color, Component, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
-import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import { addAlignedWidget, showPageToast } from '../../scripts/components/bundle-pages';
 import {
   CARD_BORDER,
   LOCKED_BG,
@@ -36,8 +36,8 @@ import { fontManager } from '../../scripts/core/font-manager';
 
 const { ccclass } = _decorator;
 
-/** 内容区宽度（720 设计宽 - 左右各 24 边距） */
-const CONTENT_W = 672;
+/** 内容区宽度（弹窗 body 宽 660 - 左右各 20 边距 = 620） */
+const CONTENT_W = 620;
 
 /** 品类卡：4 列网格（Web .cat-grid grid-template-columns: repeat(4, 1fr)） */
 const GRID_COLS = 4;
@@ -70,7 +70,7 @@ const RARE_PARTICLES: readonly { x: number; y: number; size: number; color: Colo
 const CHAIN_CARD_H = 240;
 
 /** 一屏内容的可视高度上限，超出部分靠滚动 */
-const VIEW_TOP = 380;
+const VIEW_TOP = 86;
 /** 底部安全边距 */
 const BOTTOM_SAFE = 20;
 
@@ -101,8 +101,6 @@ export class CollectionPageComponent extends Component {
   private readonly _onChanged = (): void => this._render();
 
   protected onLoad(): void {
-    createPageChrome(this.node, '图鉴');
-
     const gm = GameManager.instance;
     gm.events.on('collection:changed', this._onChanged);
     gm.events.on('shard:changed', this._onChanged);
@@ -112,7 +110,7 @@ export class CollectionPageComponent extends Component {
     tabRow.layer = this.node.layer;
     tabRow.addComponent(UITransform).setContentSize(CONTENT_W, 68);
     this.node.addChild(tabRow);
-    addAlignedWidget(tabRow, { isAlignTop: true, top: 292 });
+    addAlignedWidget(tabRow, { isAlignTop: true, top: 8 });
     this._tabRow = tabRow;
 
     // 滚动区：固定可视高度 + top 对齐

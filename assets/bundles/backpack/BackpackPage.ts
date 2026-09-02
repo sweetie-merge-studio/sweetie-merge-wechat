@@ -1,7 +1,8 @@
 import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
-import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
+import { showPageToast } from '../../scripts/components/bundle-pages';
+import { resizeModalPanel } from '../../scripts/components/modal-chrome';
 import { loadSpriteFrame, applySpriteFrame } from '../../scripts/components/sprite-loader';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
@@ -10,7 +11,7 @@ import { getDisplayName, getItemSpritePath } from '../../scripts/data/items';
 const { ccclass } = _decorator;
 
 const COLS = 6;
-const CELL = 92;
+const CELL = 88;
 const GAP = 10;
 const GRID_W = COLS * CELL + (COLS - 1) * GAP;
 
@@ -23,6 +24,11 @@ const BTN_W = 240;
 const BTN_H = 60;
 const CLAIM_BG = new Color(126, 191, 108, 255);
 const DIM_BG = new Color(180, 160, 140, 255);
+
+/** 网格行数（6×6） */
+const ROWS = 6;
+const HEADER_H = 40;
+const FOOTER_H = BTN_H + 24;
 
 /**
  * 背包页（backpack 分包）：6×6 格，展示已收纳的物品。
@@ -38,35 +44,35 @@ export class BackpackPageComponent extends Component {
   private readonly _onChanged = (): void => this._render();
 
   protected onLoad(): void {
-    createPageChrome(this.node, '背包');
-
     const gm = GameManager.instance;
     gm.events.on('backpack:changed', this._onChanged);
     // 钻石变化会影响解锁按钮的可用态
     gm.events.on('economy:changed', this._onChanged);
 
+    // 容量标签
     const header = new Node('capacity');
     header.layer = this.node.layer;
-    header.addComponent(UITransform);
+    header.addComponent(UITransform).setContentSize(GRID_W, HEADER_H);
     this.node.addChild(header);
     this._headerLabel = header.addComponent(Label);
     this._headerLabel.fontSize = 26;
     this._headerLabel.lineHeight = 32;
     this._headerLabel.color = UI_COLORS.textBrown;
-    addAlignedWidget(header, { isAlignTop: true, top: 246 });
+    this._headerLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
 
+    // 网格
+    const gridH = ROWS * CELL + (ROWS - 1) * GAP;
     const content = new Node('grid');
     content.layer = this.node.layer;
-    content.addComponent(UITransform).setContentSize(GRID_W, COLS * (CELL + GAP));
+    content.addComponent(UITransform).setContentSize(GRID_W, gridH);
     this.node.addChild(content);
-    addAlignedWidget(content, { isAlignTop: true, top: 300 });
     this._content = content;
 
+    // 底部解锁按钮
     const footer = new Node('footer');
     footer.layer = this.node.layer;
     footer.addComponent(UITransform).setContentSize(GRID_W, BTN_H);
     this.node.addChild(footer);
-    addAlignedWidget(footer, { isAlignTop: true, top: 300 + COLS * (CELL + GAP) + 24 });
     this._footer = footer;
 
     this._render();
@@ -102,6 +108,31 @@ export class BackpackPageComponent extends Component {
     }
 
     this._renderFooter();
+    this._layout();
+  }
+
+  /** 按 header + grid + footer 顺序居中排列，并动态调整弹窗面板高度 */
+  private _layout(): void {
+    const header = this.node.getChildByName('capacity');
+    const grid = this._content;
+    const footer = this._footer;
+    if (!header || !grid || !footer) return;
+
+    const gridH = grid.getComponent(UITransform)?.height ?? 0;
+    const totalH = HEADER_H + gridH + FOOTER_H + 16;
+
+    // 从顶部往下排（body 坐标系：y 正方向向上）
+    let cursor = totalH / 2;
+    header.setPosition(new Vec3(0, cursor - HEADER_H / 2, 0));
+    cursor -= HEADER_H;
+    grid.setPosition(new Vec3(0, cursor - gridH / 2, 0));
+    cursor -= gridH;
+    footer.setPosition(new Vec3(0, cursor - FOOTER_H / 2 + 12, 0));
+
+    // 动态调整弹窗面板高度（找到 modalPanel 父节点）
+    let panel: Node | null = this.node;
+    while (panel && panel.name !== 'modalPanel') panel = panel.parent;
+    if (panel) resizeModalPanel(panel, totalH + 40);
   }
 
   private _buildSlot(parent: Node, pos: Vec3, idx: number, itemId?: string): void {

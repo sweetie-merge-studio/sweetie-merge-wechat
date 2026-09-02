@@ -1,7 +1,8 @@
 import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../manager/GameManager';
-import { openBundlePage, showPageToast } from './bundle-pages';
+import { openBundlePage, openBundleModal, showPageToast } from './bundle-pages';
+import type { ModalShellOptions } from './modal-chrome';
 import { playSfx } from '../manager/AudioManager';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
@@ -41,6 +42,8 @@ const CARD_SHADOW = new Color(160, 120, 40, 51);
 interface TabPage {
   bundle: string;
   component: string;
+  /** 弹窗选项：有则以弹窗形式打开，无则全屏页 */
+  modal?: ModalShellOptions;
 }
 
 /** page: 点击时打开的分包页面；enLabel 对齐 Web 端双语标签 */
@@ -51,16 +54,16 @@ const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: 
   },
   {
     key: 'collection', label: '图鉴', enLabel: 'Journal',
-    page: { bundle: 'collection', component: 'CollectionPageComponent' },
+    page: { bundle: 'collection', component: 'CollectionPageComponent', modal: { width: 660, height: 1000, title: '图鉴' } },
   },
   { key: 'home', label: '首页', enLabel: 'Home' },
   {
     key: 'backpack', label: '背包', enLabel: 'Backpack',
-    page: { bundle: 'backpack', component: 'BackpackPageComponent' },
+    page: { bundle: 'backpack', component: 'BackpackPageComponent', modal: { width: 660, height: 820, title: '背包' } },
   },
   {
     key: 'shop', label: '商店', enLabel: 'Shop',
-    page: { bundle: 'store', component: 'StorePageComponent' },
+    page: { bundle: 'store', component: 'StorePageComponent', modal: { width: 660, height: 1000, title: '商店' } },
   },
 ];
 
@@ -207,7 +210,11 @@ export class BottomNavComponent extends Component {
             }
           }
           if (staticPage) {
-            openBundlePage(canvas, staticPage.bundle, staticPage.component);
+            if (staticPage.modal) {
+              openBundleModal(canvas, staticPage.bundle, staticPage.component, staticPage.modal);
+            } else {
+              openBundlePage(canvas, staticPage.bundle, staticPage.component);
+            }
           } else {
             showPageToast(canvas, `「${tab.label}」还在准备中，敬请期待呀`);
           }

@@ -12,10 +12,11 @@ import {
   Widget,
 } from 'cc';
 
-import { MODAL_PREFIX } from './modal-chrome';
+import { MODAL_PREFIX, createModalRoot, buildModalShell, type ModalShellOptions } from './modal-chrome';
 import { TapZoneComponent } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 import { fontManager } from '../core/font-manager';
+import { playSfx } from '../manager/AudioManager';
 
 /**
  * 分包页面调度：loadBundle 后在 Canvas 上叠一层全屏 overlay，
@@ -304,4 +305,46 @@ export function showPageToast(root: Node, text: string): void {
   setTimeout(() => {
     if (toast.isValid) toast.destroy();
   }, TOAST_DURATION);
+}
+
+/**
+ * 打开分包弹窗：加载 bundle → 建模态根节点 → 公共弹窗外壳 → 分包组件挂到 body。
+ * 与 openBundlePage 的区别：不建全屏 overlay，用居中弹窗面板 + 遮罩 + 标题栏 + 关闭按钮。
+ * 重复调用（同名弹窗已开）时直接忽略。
+ */
+export function openBundleModal(
+  host: Node,
+  bundleName: string,
+  componentName: string,
+  shellOpts: ModalShellOptions,
+): void {
+  if (host.getChildByName(`${MODAL_PREFIX}${bundleName}`)) return;
+
+  const ret = assetManager.loadBundle(bundleName, err => {
+    if (err) {
+      console.warn(`[bundle-pages] 加载分包 ${bundleName} 失败`, err);
+      return;
+    }
+    try {
+      if (!host.isValid || host.getChildByName(`${MODAL_PREFIX}${bundleName}`)) return;
+
+      const cls = js.getClassByName(componentName) as (new () => Component) | null;
+      if (!cls) {
+        console.warn(`[bundle-pages] 分包 ${bundleName} 中未注册组件 ${componentName}`);
+        return;
+      }
+
+      const root = createModalRoot(host, bundleName);
+      if (!root) return;
+
+      const shell = buildModalShell(root, shellOpts);
+      shell.body.addComponent(cls);
+      playSfx('popup_open');
+    } catch (e) {
+      console.error(`[bundle-pages] 打开弹窗 ${bundleName} 失败:`, e);
+    }
+  }) as Promise<unknown> | void;
+  if (ret && typeof ret.catch === 'function') {
+    ret.catch(e => console.error(`[bundle-pages] loadBundle promise 失败 ${bundleName}:`, e));
+  }
 }

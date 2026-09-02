@@ -5,7 +5,7 @@ import { GameManager } from '../manager/GameManager';
 import { createSpriteNode, createLabel, UI_COLORS } from './ui-factory';
 import { registerTutorialTarget, unregisterTutorialTarget } from '../core/tutorial-target';
 import { TapZoneComponent } from './tap-zone';
-import { openBundlePage, showPageToast } from './bundle-pages';
+import { openBundleModal, showPageToast } from './bundle-pages';
 import { SettingsModal } from './SettingsModal';
 import { EnergyAdModal } from './EnergyAdModal';
 import { getSectionTops } from './layout';
@@ -282,7 +282,7 @@ export class StatusBarComponent extends Component {
             EnergyAdModal.show(canvas);
           }
         } else {
-          openBundlePage(canvas, 'store', 'StorePageComponent');
+          openBundleModal(canvas, 'store', 'StorePageComponent', { width: 660, height: 1000, title: '商店' });
         }
       };
     }
