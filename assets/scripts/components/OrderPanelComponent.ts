@@ -34,8 +34,6 @@ const ARROW_SHADOW_LAYERS = 6;
 /** 顾客头像 — web 5.5dvh=44.7px × 1.724 = 77px，距顶 32.95px → y=37 */
 const AVATAR_SIZE = 77;
 const AVATAR_Y = 37;
-/** 头像取自这些品类的 Lv.3 角色图，按订单 id 稳定散列，同一单头像不跳变 */
-const AVATAR_POOL = ['cake', 'icecream', 'drink', 'fruit', 'candy', 'cookie'] as const;
 
 /** 需求物品图标 — web 3dvh=24.4px × 1.724 = 42px，距顶 71.5px → y=-30 */
 const REQ_ICON_SIZE = 42;
@@ -392,8 +390,8 @@ export class OrderPanelComponent extends Component {
       // 木牌背景图垫底
       createSpriteNode('cardBg', card, 0, CARD_WIDTH, CARD_HEIGHT, 'sprites/bg/order-card');
 
-      // 顾客头像（品类拟人图，无 customer 资源时的降级方案）
-      this._buildAvatar(card, order);
+      // 顾客头像（专门的顾客角色图，对齐抖音端）
+      this._buildAvatar(card, order.avatar);
 
       // 需求物品小图标（无名称文字）
       this._buildRequirements(card, order.requirements);
@@ -429,15 +427,13 @@ export class OrderPanelComponent extends Component {
     fontManager.applyFontToTree(this.node);
   }
 
-  /** 顾客头像：品类拟人角色图（微信端无 customer 立绘资源），纯贴图对齐抖音端风格 */
-  private _buildAvatar(card: Node, order: Order): void {
-    let hash = 0;
-    for (let i = 0; i < order.id.length; i++) hash = (hash * 31 + order.id.charCodeAt(i)) | 0;
-    const cat = AVATAR_POOL[Math.abs(hash) % AVATAR_POOL.length];
+  /** 顾客头像（卡片顶部）— 专门的顾客角色图，对齐抖音端 */
+  private _buildAvatar(card: Node, avatar: number): void {
+    const avatarId = Math.max(1, Math.min(10, avatar || 1));
     createSpriteNode(
       'avatar', card, card.children.length,
       AVATAR_SIZE, AVATAR_SIZE,
-      `sprites/items/${cat}/${cat}_3`,
+      `sprites/characters/customer_${avatarId}`,
       new Vec3(0, AVATAR_Y, 0),
     );
   }

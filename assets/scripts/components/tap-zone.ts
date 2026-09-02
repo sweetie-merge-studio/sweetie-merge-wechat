@@ -20,6 +20,11 @@ export function popModalLayer(root: Node): void {
   if (modalRoot === root) modalRoot = null;
 }
 
+/** 调试用：获取当前模态根节点（null 表示无模态层） */
+export function getModalRoot(): Node | null {
+  return modalRoot;
+}
+
 /**
  * 全局输入版点击区。
  *
@@ -49,6 +54,17 @@ export class TapZoneComponent extends Component {
     return true;
   }
 
+  /** 调试用：返回模态层阻挡的详细原因 */
+  private _modalBlockDebug(): string {
+    if (!modalRoot) return 'modalRoot=null';
+    if (!modalRoot.isValid) return 'modalRoot=invalid(已销毁)';
+    let found = false;
+    for (let n: Node | null = this.node; n; n = n.parent) {
+      if (n === modalRoot) { found = true; break; }
+    }
+    return found ? '在模态子树内(不阻挡)' : `被模态根阻挡 modalRoot=${modalRoot.name}(valid)`;
+  }
+
   protected onEnable(): void {
     input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
@@ -70,13 +86,40 @@ export class TapZoneComponent extends Component {
     const ui = this.node.getComponent(UITransform);
     if (!ui) return false;
     const pos = event.getUILocation();
-    const local = ui.convertToNodeSpaceAR(new Vec3(pos.x, pos.y, 0));
-    return (
+    const touchWorld = new Vec3(pos.x, pos.y, 0);
+
+    // 方式 A：convertToNodeSpaceAR（原方式，依赖节点世界变换矩阵正确）
+    const local = ui.convertToNodeSpaceAR(touchWorld);
+    const hitA = (
       local.x >= -ui.anchorX * ui.width &&
       local.x <= (1 - ui.anchorX) * ui.width &&
       local.y >= -ui.anchorY * ui.height &&
       local.y <= (1 - ui.anchorY) * ui.height
     );
+
+    // 方式 B：世界坐标矩形（备用，不依赖 convertToNodeSpaceAR）
+    // 适配 FIXED_WIDTH 下 Widget 对齐与 UITransform 不同步导致的"看得见点不到"
+    const wp = this.node.worldPosition;
+    const scale = this.node.worldScale;
+    const w = ui.width * scale.x;
+    const h = ui.height * scale.y;
+    const left = wp.x - ui.anchorX * w;
+    const bottom = wp.y - ui.anchorY * h;
+    const hitB = (
+      pos.x >= left && pos.x <= left + w &&
+      pos.y >= bottom && pos.y <= bottom + h
+    );
+
+    if (this.debugName && !hitA && hitB) {
+      console.info(
+        `[tap] HIT-FALLBACK ${this.debugName}`,
+        `ui=(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`,
+        `local=(${local.x.toFixed(0)},${local.y.toFixed(0)}) out-of-range`,
+        `worldRect=(${left.toFixed(0)},${bottom.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
+      );
+    }
+
+    return hitA || hitB;
   }
 
   private _onTouchStart(event: EventTouch): void {
@@ -92,6 +135,7 @@ export class TapZoneComponent extends Component {
         `size=(${ui?.width}x${ui?.height}) anchor=(${ui?.anchorX},${ui?.anchorY})`,
         `active=${this.node.activeInHierarchy}`,
         `worldPos=(${this.node.worldPosition.x.toFixed(0)},${this.node.worldPosition.y.toFixed(0)})`,
+        `modal=${this._modalBlockDebug()}`,
       );
     }
   }

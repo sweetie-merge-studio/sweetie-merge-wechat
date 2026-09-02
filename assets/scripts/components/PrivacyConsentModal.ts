@@ -634,10 +634,11 @@ export class PrivacyConsentModal extends Component {
       false,
       () => this._onDecline(),
     );
+    this._declineBtn.getComponent(TapZoneComponent)!.debugName = 'privacy-decline';
     this._declineBtnLabel = this._declineBtn.getChildByName('label')?.getComponent(Label) ?? null;
 
     // 同意并继续 按钮（Web .btn-primary：渐变 #F5A623→#E8941A，白色文字，阴影）
-    this._buildButton(
+    const agreeBtn = this._buildButton(
       panel,
       new Vec3(btnX, btnY, 0),
       '同意并继续',
@@ -647,6 +648,7 @@ export class PrivacyConsentModal extends Component {
       true,
       () => this._onAgree(),
     );
+    agreeBtn.getComponent(TapZoneComponent)!.debugName = 'privacy-agree';
   }
 
   /**
