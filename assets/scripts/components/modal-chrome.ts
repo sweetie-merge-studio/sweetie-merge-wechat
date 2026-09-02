@@ -1,10 +1,26 @@
-import { BlockInputEvents, Color, Graphics, Label, Node, RichText, Sprite, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, BlockInputEvents, Color, Component, Graphics, Label, Node, RichText, Sprite, UITransform, Vec3, Widget } from 'cc';
 
 import { TapZoneComponent, popModalLayer, pushModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 import { loadSpriteFrame, applySpriteFrame } from './sprite-loader';
 import { fontManager } from '../core/font-manager';
 import { playSfx } from '../manager/AudioManager';
+
+const { ccclass } = _decorator;
+
+/**
+ * 模态根节点组件：onLoad 压入模态层，onDestroy 弹出。
+ * 与抖音端 ModalRoot 对齐，确保模态层生命周期与节点生命周期严格绑定。
+ */
+@ccclass('ModalRoot')
+export class ModalRoot extends Component {
+  protected onLoad(): void {
+    pushModalLayer(this.node);
+  }
+  protected onDestroy(): void {
+    popModalLayer(this.node);
+  }
+}
 
 /**
  * 主场景模态弹窗的共用构件。
@@ -60,8 +76,8 @@ export function createModalRoot(canvas: Node, name: string): Node | null {
   widget.alignMode = Widget.AlignMode.ALWAYS;
   widget.updateAlignment();
 
-  pushModalLayer(root);
-  root.on(Node.EventType.NODE_DESTROYED, () => popModalLayer(root));
+  // 用 ModalRoot 组件管理模态层生命周期（onLoad push / onDestroy pop）
+  root.addComponent(ModalRoot);
 
   return root;
 }
