@@ -229,21 +229,23 @@ export function buildItemCell(
     return cell;
   }
 
-  paintRoundRect(
-    cell,
-    size.w,
-    size.h,
-    14,
-    CARD_BG,
-    info.unclaimed ? UNCLAIMED_STROKE : undefined,
-    4,
-  );
+  // 已解锁：普通圆角矩形卡片（外框 + 内层高光边）
+  const outerColor = info.unclaimed ? UNCLAIMED_STROKE : FRAME_BORDER;
+  const innerColor = info.unclaimed ? new Color(240, 214, 138, 180) : FRAME_INNER;
+  paintRoundRect(cell, size.w, size.h, 16, CARD_BG, outerColor, info.unclaimed ? 4 : 3);
+  // 内层高光边：普通圆角矩形
+  const g2 = cell.getComponent(Graphics)!;
+  const iw = size.w - 10;
+  const ih = size.h - 10;
+  const ir = 12;
+  g2.lineWidth = 1.5;
+  g2.strokeColor = innerColor;
+  g2.roundRect(-iw / 2, -ih / 2, iw, ih, ir);
+  g2.stroke();
 
   if (info.unclaimed) {
-    // 未领取：钻石覆盖层取代物品图（与 Web .unclaimed-overlay 一致），并做呼吸高亮。
-    // Pulse 挂在钻石子节点上而不是 cell：cell 上还有 TapZone，
-    // 改 cell 的 UIOpacity 会连描边一起闪，也更容易和命中矩形纠缠。
-    const diamond = addSprite(cell, DIAMOND_SPRITE, 30);
+    // 未领取：钻石覆盖层取代物品图，做呼吸高亮
+    const diamond = addSprite(cell, DIAMOND_SPRITE, 56);
     diamond.addComponent(PulseEffect);
     const zone = cell.addComponent(TapZoneComponent);
     zone.onTap = () => handlers.onClaim?.();
@@ -251,12 +253,12 @@ export function buildItemCell(
   }
 
   const path = getItemSpritePath(info.itemId);
-  if (path) addSprite(cell, path, size.h - 40, 10);
+  if (path) addSprite(cell, path, Math.min(size.h - 50, size.w - 24), 8);
   addLabel(cell, info.name, {
     size: 16,
     color: UI_COLORS.textBrown,
     bold: true,
-    y: -size.h / 2 + 16,
+    y: -size.h / 2 + 18,
     width: size.w - 8,
   });
 

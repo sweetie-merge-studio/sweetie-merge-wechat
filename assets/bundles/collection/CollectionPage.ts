@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Label, Node, UITransform, Vec3, view } from 'cc';
+import { _decorator, Color, Component, Node, UITransform, Vec3 } from 'cc';
 
 import { GameManager } from '../../scripts/manager/GameManager';
 import { addAlignedWidget, createPageChrome, showPageToast } from '../../scripts/components/bundle-pages';
@@ -28,8 +28,11 @@ import { SparkleEffect } from '../../scripts/components/effect-sparkle';
 import { levelSubtitle, showItemDetail } from '../../scripts/components/collection-detail';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
+import { createScrollView, type ScrollView } from '../../scripts/components/drag-scroll';
 import { CATEGORIES, RARE_ITEM_BY_CATEGORY, getItemSpritePath } from '../../scripts/data/items';
 import { getShardCount, getShardsRequired, isRareCompleted } from '../../scripts/core/shard';
+import { playSfx } from '../../scripts/manager/AudioManager';
+import { fontManager } from '../../scripts/core/font-manager';
 
 const { ccclass } = _decorator;
 
@@ -41,7 +44,7 @@ const GRID_COLS = 4;
 const CARD_PAD = 16;
 const CELL_GAP = 10;
 const CELL_W = (CONTENT_W - CARD_PAD * 2 - CELL_GAP * (GRID_COLS - 1)) / GRID_COLS;
-const CELL_H = 110;
+const CELL_H = 150;
 const MOTHER_H = 64;
 /** 品类卡总高：两行子棋 + 母棋条 */
 const CATEGORY_CARD_H = CARD_PAD * 2 + CELL_H * 2 + CELL_GAP + MOTHER_H + 8;
@@ -64,14 +67,12 @@ const RARE_PARTICLES: readonly { x: number; y: number; size: number; color: Colo
 ];
 
 /** 经济卡：合成链一行 4 级 */
-const CHAIN_CARD_H = 190;
+const CHAIN_CARD_H = 240;
 
-/** 一屏内容的可视高度上限，超出部分靠翻页 */
+/** 一屏内容的可视高度上限，超出部分靠滚动 */
 const VIEW_TOP = 380;
-/** 底部翻页条占用的高度（按钮 64 + 上下留白） */
-const PAGER_H = 84;
-/** 底部安全边距（避开 home indicator）。留太多会白白挤掉一整张品类卡 */
-const BOTTOM_SAFE = 60;
+/** 底部安全边距 */
+const BOTTOM_SAFE = 20;
 
 const CURRENCY_GROUPS: readonly { prefix: string; name: string; icon: string }[] = [
   { prefix: 'coin', name: '金币', icon: 'sprites/currency/coin_single' },
@@ -95,9 +96,8 @@ const CHAIN_LEN = 4;
 export class CollectionPageComponent extends Component {
   private _content: Node | null = null;
   private _tabRow: Node | null = null;
-  private _headerLabel: Label | null = null;
+  private _scroll: ScrollView | null = null;
   private _activeTab: CollectionTab = 'items';
-  private _page = 0;
   private readonly _onChanged = (): void => this._render();
 
   protected onLoad(): void {
@@ -107,16 +107,7 @@ export class CollectionPageComponent extends Component {
     gm.events.on('collection:changed', this._onChanged);
     gm.events.on('shard:changed', this._onChanged);
 
-    const header = new Node('completion');
-    header.layer = this.node.layer;
-    header.addComponent(UITransform);
-    this.node.addChild(header);
-    this._headerLabel = header.addComponent(Label);
-    this._headerLabel.fontSize = 24;
-    this._headerLabel.lineHeight = 30;
-    this._headerLabel.color = TEXT_MUTED;
-    addAlignedWidget(header, { isAlignTop: true, top: 250 });
-
+    // 顶部 Tab 行
     const tabRow = new Node('tabRow');
     tabRow.layer = this.node.layer;
     tabRow.addComponent(UITransform).setContentSize(CONTENT_W, 68);
@@ -124,14 +115,13 @@ export class CollectionPageComponent extends Component {
     addAlignedWidget(tabRow, { isAlignTop: true, top: 292 });
     this._tabRow = tabRow;
 
-    // 高度必须恒为 0：Widget 按节点中心做 top 对齐，节点一变高中心就下沉，
-    // 子节点会被整体推走。这里当成一个「顶部锚点」，卡片全部按负 y 往下排。
-    const content = new Node('content');
-    content.layer = this.node.layer;
-    content.addComponent(UITransform).setContentSize(CONTENT_W, 0);
-    this.node.addChild(content);
-    addAlignedWidget(content, { isAlignTop: true, top: VIEW_TOP });
-    this._content = content;
+    // 滚动区：固定可视高度 + top 对齐
+    const bodyUi = this.node.getComponent(UITransform)!;
+    const viewH = Math.max(1, bodyUi.height - VIEW_TOP - BOTTOM_SAFE);
+    const scroll = createScrollView(this.node, CONTENT_W, viewH);
+    addAlignedWidget(scroll.view, { isAlignTop: true, top: VIEW_TOP });
+    this._scroll = scroll;
+    this._content = scroll.content;
 
     this._render();
   }
@@ -145,7 +135,7 @@ export class CollectionPageComponent extends Component {
 
   private _switchTab(tab: CollectionTab): void {
     this._activeTab = tab;
-    this._page = 0;
+    this._scroll?.scrollToTop();
     this._render();
   }
 
@@ -158,12 +148,6 @@ export class CollectionPageComponent extends Component {
     tabRow.removeAllChildren();
     buildTabBar(tabRow, CONTENT_W, this._activeTab, t => this._switchTab(t));
 
-    const gm = GameManager.instance;
-    if (this._headerLabel?.isValid) {
-      const total = gm.collection.unlockedIds.size;
-      this._headerLabel.string = `已收集 ${total} 件`;
-    }
-
     const cards =
       this._activeTab === 'items'
         ? this._buildItemsTab()
@@ -171,106 +155,59 @@ export class CollectionPageComponent extends Component {
           ? this._buildRareTab()
           : this._buildCurrencyTab();
 
-    this._layoutPaged(content, cards);
+    this._layoutScroll(cards);
+
+    fontManager.applyFontToTree(this.node);
   }
 
   /**
-   * 把卡片按分页塞进内容区。
-   * 每页装满为止，底部留出翻页按钮的位置。
+   * 把所有卡片按顺序塞进滚动内容区，从上到下排列。
    */
-  private _layoutPaged(content: Node, cards: { h: number; build: (parent: Node, y: number) => void }[]): void {
-    const pages = this._paginate(cards);
+  private _layoutScroll(cards: { h: number; build: (parent: Node, y: number) => void }[]): void {
+    const scroll = this._scroll;
+    const content = this._content;
+    if (!scroll || !content?.isValid) return;
 
-    if (pages.length === 0) return;
-    this._page = Math.max(0, Math.min(this._page, pages.length - 1));
-
-    let y = 0;
-    for (const card of pages[this._page]) {
-      y -= card.h / 2;
-      card.build(content, y);
-      y -= card.h / 2 + CELL_GAP;
+    content.removeAllChildren();
+    if (cards.length === 0) {
+      scroll.setContentHeight(1);
+      return;
     }
 
-    if (pages.length > 1) this._buildPager(content, y - 20, pages.length);
-  }
+    const viewH = scroll.view.getComponent(UITransform)!.height;
+    let y = viewH / 2;
+    let usedH = 0;
 
-  /**
-   * 内容区可用高度：可视高度减去顶部 chrome 与底部安全边距。
-   *
-   * 必须读 view.getVisibleSize()——项目跑 FIXED_WIDTH，真机可视高度（如 1559）
-   * 远大于设计高度 1280，用设计高度算会少排一整张卡。
-   */
-  private _availableHeight(): number {
-    return view.getVisibleSize().height - VIEW_TOP - BOTTOM_SAFE;
-  }
-
-  /**
-   * 按可用高度切页。
-   *
-   * 先按整屏切一次，只要切出多于一页，就说明底部要放翻页条——此时可用高度
-   * 要扣掉 PAGER_H 再重切，否则每页最后一张卡会压在翻页按钮上。
-   */
-  private _paginate(
-    cards: { h: number; build: (parent: Node, y: number) => void }[],
-  ): { h: number; build: (parent: Node, y: number) => void }[][] {
-    const split = (viewH: number): typeof cards[] => {
-      const pages: typeof cards[] = [];
-      let cur: typeof cards = [];
-      let curH = 0;
-      for (const card of cards) {
-        if (curH + card.h > viewH && cur.length > 0) {
-          pages.push(cur);
-          cur = [];
-          curH = 0;
-        }
-        cur.push(card);
-        curH += card.h + CELL_GAP;
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      y -= card.h / 2;
+      card.build(content, y);
+      y -= card.h / 2;
+      usedH += card.h;
+      if (i < cards.length - 1) {
+        y -= CELL_GAP;
+        usedH += CELL_GAP;
       }
-      if (cur.length > 0) pages.push(cur);
-      return pages;
-    };
+    }
 
-    const full = split(this._availableHeight());
-    return full.length > 1 ? split(this._availableHeight() - PAGER_H) : full;
+    const finalH = Math.max(usedH, viewH);
+    scroll.setContentHeight(finalH);
+    if (finalH > viewH) {
+      const shift = (finalH - viewH) / 2;
+      for (const child of content.children) {
+        const p = child.position;
+        child.setPosition(new Vec3(p.x, p.y + shift, p.z));
+      }
+    }
   }
 
-  private _buildPager(parent: Node, y: number, pageCount: number): void {
-    const row = new Node('pager');
-    row.layer = parent.layer;
-    row.addComponent(UITransform).setContentSize(CONTENT_W, 64);
-    row.setPosition(new Vec3(0, y, 0));
-    parent.addChild(row);
-
-    const mkBtn = (label: string, x: number, enabled: boolean, delta: number): void => {
-      const btn = new Node(`page_${label}`);
-      btn.layer = row.layer;
-      btn.addComponent(UITransform).setContentSize(96, 56);
-      btn.setPosition(new Vec3(x, 0, 0));
-      row.addChild(btn);
-      paintRoundRect(
-        btn,
-        96,
-        56,
-        16,
-        enabled ? UI_COLORS.pillBg : LOCKED_BG,
-        enabled ? UI_COLORS.pillBorder : LOCKED_BORDER,
-      );
-      addLabel(btn, label, {
-        size: 26,
-        color: enabled ? UI_COLORS.textBrown : TEXT_MUTED,
-        bold: true,
-      });
-      if (!enabled) return;
-      const zone = btn.addComponent(TapZoneComponent);
-      zone.onTap = () => {
-        this._page += delta;
-        this._render();
-      };
-    };
-
-    mkBtn('∧', -110, this._page > 0, -1);
-    addLabel(row, `${this._page + 1}/${pageCount}`, { size: 24, color: TEXT_MUTED, bold: true });
-    mkBtn('∨', 110, this._page < pageCount - 1, 1);
+  /** 向上找到弹窗根节点（用于 showPageToast / showItemDetail，避免被面板裁剪） */
+  private _getModalRoot(): Node {
+    let n: Node | null = this.node;
+    while (n && !n.name.startsWith('Modal_')) {
+      n = n.parent;
+    }
+    return n ?? this.node;
   }
 
   /* ─── 物品 Tab：品类卡 + 母棋条 ─── */
@@ -308,11 +245,13 @@ export class CollectionPageComponent extends Component {
             {
               onClaim: () => {
                 if (GameManager.instance.claimCollectionDiamond(itemId)) {
-                  showPageToast(this.node, `${cat.items[i]?.name ?? itemId} 奖励 +1 钻石`);
+                  playSfx('diamond');
+                  playSfx('coin');
+                  showPageToast(this._getModalRoot(), `${cat.items[i]?.name ?? itemId} 奖励 +1 钻石`);
                 }
               },
               onDetail: () =>
-                showItemDetail(this.node, {
+                showItemDetail(this._getModalRoot(), {
                   spritePath: getItemSpritePath(itemId),
                   emoji: cat.items[i]?.emoji ?? '',
                   name: cat.items[i]?.name ?? itemId,
@@ -352,7 +291,7 @@ export class CollectionPageComponent extends Component {
     if (!unlocked) return;
     const zone = strip.addComponent(TapZoneComponent);
     zone.onTap = () =>
-      showItemDetail(this.node, {
+      showItemDetail(this._getModalRoot(), {
         spritePath: getItemSpritePath(`mother_${catId}`),
         emoji: '',
         name: `${catName}工坊`,
@@ -457,7 +396,7 @@ export class CollectionPageComponent extends Component {
       // 完成卡可点开详情（未完成的还不知道长什么样，保持不可点）
       const zone = card.addComponent(TapZoneComponent);
       zone.onTap = () =>
-        showItemDetail(this.node, {
+        showItemDetail(this._getModalRoot(), {
           spritePath: getItemSpritePath(info.id),
           emoji: info.emoji,
           name: info.name,
@@ -554,26 +493,26 @@ export class CollectionPageComponent extends Component {
           paintRoundRect(card, CONTENT_W, CHAIN_CARD_H, 20, new Color(255, 255, 255, 120), CARD_BORDER, 2);
 
           // 头部：图标 + 名称 + 进度
-          const headY = CHAIN_CARD_H / 2 - 30;
-          addSprite(card, cg.icon, 32, headY).setPosition(
-            new Vec3(-CONTENT_W / 2 + 40, headY, 0),
+          const headY = CHAIN_CARD_H / 2 - 40;
+          addSprite(card, cg.icon, 28, headY).setPosition(
+            new Vec3(-CONTENT_W / 2 + 36, headY, 0),
           );
           addLabel(card, cg.name, {
-            size: 24,
+            size: 22,
             color: UI_COLORS.textBrown,
             bold: true,
             y: headY,
-            width: 160,
+            width: 140,
             align: 'left',
             // 左对齐时 x 是节点中心，节点左缘 = x - width/2，要落在图标右侧
-          }).node.setPosition(new Vec3(-CONTENT_W / 2 + 70 + 160 / 2, headY, 0));
+          }).node.setPosition(new Vec3(-CONTENT_W / 2 + 62 + 140 / 2, headY, 0));
           addLabel(card, `${unlockedCount}/${CHAIN_LEN}`, {
-            size: 20,
+            size: 18,
             color: TEXT_MUTED,
             bold: true,
             y: headY,
-            width: 100,
-          }).node.setPosition(new Vec3(CONTENT_W / 2 - 60, headY, 0));
+            width: 80,
+          }).node.setPosition(new Vec3(CONTENT_W / 2 - 50, headY, 0));
 
           this._buildChainNodes(card, cg.prefix, cg.icon);
         },
@@ -585,9 +524,9 @@ export class CollectionPageComponent extends Component {
   private _buildChainNodes(card: Node, prefix: string, icon: string): void {
     const gm = GameManager.instance;
     const nodeW = 96;
-    const span = (CONTENT_W - 80) / CHAIN_LEN;
-    const startX = -CONTENT_W / 2 + 40 + span / 2;
-    const rowY = -18;
+    const span = (CONTENT_W - 48) / CHAIN_LEN;
+    const startX = -CONTENT_W / 2 + 24 + span / 2;
+    const rowY = -10;
 
     for (let i = 0; i < CHAIN_LEN; i++) {
       const itemId = `${prefix}_${i + 1}`;
@@ -608,7 +547,7 @@ export class CollectionPageComponent extends Component {
         unlocked ? CARD_BORDER : LOCKED_BORDER,
         2,
       );
-      addSprite(box, unlocked ? icon : LOCK_SPRITE, unlocked ? 52 : 30);
+      addSprite(box, unlocked ? icon : LOCK_SPRITE, unlocked ? 52 : 32);
       addLabel(box, `Lv.${i + 1}`, {
         size: 18,
         color: unlocked ? UNCLAIMED_STROKE : TEXT_MUTED,
