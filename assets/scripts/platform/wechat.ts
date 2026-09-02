@@ -194,24 +194,40 @@ export const wechatPlatform: Platform = {
     }
     return new Promise((resolve) => {
       const ad = getRewardedAd();
+      let settled = false;
+      const finish = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        ad.offClose();
+        ad.offError();
+        resolve(ok);
+      };
+      // 超时保护：ad.load() 在无广告填充/网络差时可能既不 resolve 也不 reject，
+      // 导致调用方永久 await、弹窗卡死。15 秒后强制按未看完处理。
+      const timer = setTimeout(() => {
+        console.warn('[wechat] 激励视频加载超时，强制结束');
+        _lastRewardedAdError = _lastRewardedAdError || 'load_timeout';
+        finish(false);
+      }, 15_000);
 
       ad.offClose();
       ad.offError();
 
       ad.onClose((res: { isEnded: boolean }) => {
-        resolve(res.isEnded);
+        finish(res.isEnded);
       });
 
       ad.onError((err: { errMsg: string; errCode: number }) => {
         console.warn('[wechat] 激励视频加载失败:', err.errMsg);
         _lastRewardedAdError = String(err.errCode ?? err.errMsg ?? 'unknown');
-        resolve(false);
+        finish(false);
       });
 
       ad.load().then(() => ad.show()).catch(() => {
         console.warn('[wechat] 激励视频展示失败，请稍后重试');
         _lastRewardedAdError = _lastRewardedAdError || 'load_or_show_failed';
-        resolve(false);
+        finish(false);
       });
     });
   },

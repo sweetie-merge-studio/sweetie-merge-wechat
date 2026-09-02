@@ -1,4 +1,4 @@
-import { _decorator, Component, Game, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, profiler, view } from 'cc';
+import { _decorator, Component, Game, Input, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, input, profiler, view } from 'cc';
 
 import type {
   BlindBoxResult,
@@ -17,7 +17,7 @@ import {
   findEmptyCell,
   placeNewMothers,
 } from '../core/board';
-import { initAudio, playBgm, playSfx } from './AudioManager';
+import { initAudio, notifyUserInteraction, playBgm, playSfx } from './AudioManager';
 import { applyEnv } from '../env';
 import { addEnergyUncapped, coinRefillEnergy, createEnergy, rewardEnergy, tickEnergy } from '../core/energy';
 import { calcOfflineEnergy, formatOfflineDuration } from '../core/offline';
@@ -84,6 +84,7 @@ import { getToken } from '../api/request';
 import { login } from '../api/auth';
 import { EventBus } from '../core/EventBus';
 import { createSpriteNode } from '../components/ui-factory';
+import { getSectionTops } from '../components/layout';
 import { CashierCounterComponent } from '../components/CashierCounterComponent';
 import { BottomNavComponent } from '../components/BottomNavComponent';
 import { OfflineRewardModal } from '../components/OfflineRewardModal';
@@ -171,6 +172,12 @@ export class GameManager extends Component {
     initAnalyticsWechat();
     initAudio(this.node);
     playBgm();
+    // 微信小游戏平台要求音频在用户首次交互后才能播放，监听首次触摸解锁
+    const onFirstTouch = () => {
+      notifyUserInteraction();
+      input.off(Input.EventType.TOUCH_START, onFirstTouch, this);
+    };
+    input.on(Input.EventType.TOUCH_START, onFirstTouch, this);
     initVibrate();
     initNetworkListener();
     initOfflineQueue();
@@ -309,10 +316,11 @@ export class GameManager extends Component {
       w.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
     }
 
-    anchorTop(this.node.getChildByName('StatusBar'), 173);
-    anchorTop(cashier, 266);
-    anchorTop(this.node.getChildByName('OrderPanel'), 396);
-    anchorTop(this.node.getChildByName('Board'), 630);
+    const tops = getSectionTops();
+    anchorTop(this.node.getChildByName('StatusBar'), tops.statusBar);
+    anchorTop(cashier, tops.cashier);
+    anchorTop(this.node.getChildByName('OrderPanel'), tops.orderPanel);
+    anchorTop(this.node.getChildByName('Board'), tops.board);
 
     const navWidget = nav.getComponent(Widget) ?? nav.addComponent(Widget);
     navWidget.isAlignBottom = true;

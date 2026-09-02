@@ -18,6 +18,8 @@ const { ccclass } = _decorator;
 const MODAL_W = 560;
 const MODAL_H = 420;
 const BTN_GAP = 16;
+/** 广告加载超时（毫秒）：超时后自动按 1x 发放并关闭，避免 SDK 卡死导致弹窗永久无法关闭 */
+const AD_TIMEOUT_MS = 10_000;
 
 /**
  * 离线收益弹窗（对齐 Web 版 OfflineReward.vue）。
@@ -76,10 +78,18 @@ export class OfflineRewardModal extends Component {
 
   // --- 交互 ---
 
+  /**
+   * 普通领取（1x）。
+   * 不受 _busy 限制：广告加载中用户仍可改领 1x，作为兜底关闭通道。
+   */
   private _onPlain(): void {
-    if (this._busy) return;
-    GameManager.instance.collectOfflineReward(false);
-    this.node.destroy();
+    try {
+      GameManager.instance.collectOfflineReward(false);
+    } catch (err) {
+      console.error('[OfflineRewardModal] 领取离线收益异常，强制关闭弹窗:', err);
+    } finally {
+      if (this.node.isValid) this.node.destroy();
+    }
   }
 
   private async _onDouble(): Promise<void> {
@@ -87,12 +97,34 @@ export class OfflineRewardModal extends Component {
     this._busy = true;
     setButtonBusy(this._doubleButton, '广告加载中…');
 
+    // 本地超时兜底：广告 SDK 卡死（load 不 resolve 也不 reject）时强制收尾。
+    // 必须在超时回调里直接 destroy 节点——否则 await 永不返回，finally 不会执行。
+    const timeout = setTimeout(() => {
+      console.warn('[OfflineRewardModal] 激励视频加载超时，按 1x 发放并关闭');
+      this._finishWith1x();
+      if (this.node.isValid) this.node.destroy();
+    }, AD_TIMEOUT_MS);
+
     try {
       // 广告未播完时 collectOfflineRewardDouble 内部按 1x 发放
       await GameManager.instance.collectOfflineRewardDouble();
+    } catch (err) {
+      console.error('[OfflineRewardModal] 翻倍领取异常，按 1x 发放:', err);
+      this._finishWith1x();
     } finally {
+      clearTimeout(timeout);
       // 广告 SDK 异常也要关弹窗，否则奖励已发但弹窗卡住
       if (this.node.isValid) this.node.destroy();
+    }
+  }
+
+  /** 超时/异常兜底：按 1x 发放（若尚未发放）。幂等，重复调用安全。 */
+  private _finishWith1x(): void {
+    try {
+      // collectOfflineReward 内部有 offlineReward 判空，已发放时返回 0，不会重复发
+      GameManager.instance.collectOfflineReward(false);
+    } catch (err) {
+      console.error('[OfflineRewardModal] 兜底发放 1x 异常:', err);
     }
   }
 

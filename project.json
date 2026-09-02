@@ -35,6 +35,12 @@
       "isBundle": true,
       "priority": 2,
       "compressionType": "subpackage"
+    },
+    "game-audio": {
+      "path": "assets/bundles/game-audio",
+      "isBundle": true,
+      "priority": 2,
+      "compressionType": "subpackage"
     }
   }
 }

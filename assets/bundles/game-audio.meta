@@ -1,0 +1,16 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "0333c632-8902-4da1-8107-0f28f19874b8",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "compressionType": {},
+    "isRemoteBundle": {},
+    "isBundle": true,
+    "bundleConfigID": "minigame_subpackage",
+    "bundleName": "game-audio",
+    "priority": 2
+  }
+}
