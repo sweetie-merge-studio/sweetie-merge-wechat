@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, EventTouch, Graphics, Input, Label, Node, Prefab, UIOpacity, UITransform, Vec3, input, instantiate } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Input, Label, Node, Prefab, Sprite, tween, UIOpacity, UITransform, Vec3, input, instantiate } from 'cc';
 
 import type { Order, OrderRequirement } from '../core/order';
 import { isOrderComplete } from '../core/order';
@@ -8,7 +8,11 @@ import { hasOpenBundlePage, showPageToast } from './bundle-pages';
 import { OrderDoubleModal } from './OrderDoubleModal';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
+import { loadSpriteFrame, applySpriteFrame } from './sprite-loader';
+import { spawnFlyingCoins } from './coin-fly';
+import { BoardComponent } from './BoardComponent';
 import { fontManager } from '../core/font-manager';
+import { showSynthesisPathModal } from './SynthesisPathModal';
 
 const { ccclass, property } = _decorator;
 
@@ -300,9 +304,37 @@ export class OrderPanelComponent extends Component {
         const order = this._visibleOrders[this._startCardIdx];
         if (!order) return;
         if (isOrderComplete(order)) {
+          // 已完成订单：先记录匹配物品位置，播放物品飞行动画，再领取奖励
+          // (逻辑见下方)
+          const card = this._content?.children[this._startCardIdx];
+          const matchedItems: { idx: number; itemId: string }[] = [];
+          for (const req of order.requirements) {
+            if (req.matchedBoardIdx != null && req.itemId) {
+              matchedItems.push({ idx: req.matchedBoardIdx, itemId: req.itemId });
+            }
+          }
+
           const coins = GameManager.instance.collectOrder(order.id);
           const canvas = this.node.parent;
-          if (coins > 0 && canvas) OrderDoubleModal.show(canvas, coins);
+          if (coins > 0) {
+            // 播放物品飞向订单卡的动画
+            if (card?.isValid && matchedItems.length > 0) {
+              this._spawnOrderItemFly(matchedItems, card);
+            }
+            // 金币飞向状态栏特效（对齐 Web 版 spawnFlyingCoins）
+            if (card?.isValid) {
+              // 延迟一点，等物品飞到订单卡后再爆金币
+              setTimeout(() => {
+                if (card.isValid) {
+                  spawnFlyingCoins(GameManager.instance.node, card.getWorldPosition(), coins);
+                  // 订单卡星星爆发
+                  this._spawnOrderStarBurst(card);
+                }
+              }, 350);
+            }
+            // 翻倍弹窗（微信端保留）
+            if (canvas) OrderDoubleModal.show(canvas, coins);
+          }
         }
       }
     }
@@ -625,5 +657,152 @@ export class OrderPanelComponent extends Component {
     label.lineHeight = COLLECT_BTN_FONT * 1.3;
     label.isBold = true;
     label.color = Color.WHITE;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 订单交付特效：物品飞向订单卡 + 星星爆发
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 订单交付物品飞行动画：棋盘上匹配的物品沿弧线飞向订单卡，
+   * 到达后缩小消失。collectOrder 已在调用前执行，棋盘原物品已被消耗。
+   */
+  private _spawnOrderItemFly(
+    matchedItems: { idx: number; itemId: string }[],
+    card: Node,
+  ): void {
+    const canvas = GameManager.instance.node;
+    const boardNode = canvas.getChildByName('Board');
+    const boardComp = boardNode?.getComponent(BoardComponent);
+    if (!boardComp) return;
+
+    const cardWorldPos = card.getWorldPosition();
+    const spritePath = getItemSpritePath(matchedItems[0].itemId);
+    // 统一用 canvas 本地坐标，避免 setWorldPosition 与 tween position 本地坐标混用导致飞偏
+    const canvasTransform = canvas.getComponent(UITransform);
+    const cardLocal = canvasTransform?.convertToNodeSpaceAR(cardWorldPos) ?? cardWorldPos;
+
+    matchedItems.forEach((item, i) => {
+      const fromWorldPos = boardComp.getCellWorldPosition(item.idx);
+      if (!fromWorldPos) return;
+      const fromLocal = canvasTransform?.convertToNodeSpaceAR(fromWorldPos) ?? fromWorldPos;
+
+      // 创建飞行物品节点
+      const flyNode = new Node('flyOrderItem');
+      flyNode.layer = canvas.layer;
+      const size = 48;
+      flyNode.addComponent(UITransform).setContentSize(size, size);
+      flyNode.setPosition(fromLocal);
+      canvas.addChild(flyNode);
+      flyNode.setSiblingIndex(canvas.children.length - 1);
+
+      const sprite = flyNode.addComponent(Sprite);
+      const op = flyNode.addComponent(UIOpacity);
+      op.opacity = 0;
+      flyNode.setScale(0.6, 0.6, 1);
+
+      // 加载物品贴图
+      if (spritePath) {
+        loadSpriteFrame(spritePath, sf => {
+          if (sf && sprite.isValid) applySpriteFrame(sprite, sf);
+        });
+      }
+
+      // 计算弧线中点：起止点中间 + 向上拱起（本地坐标系）
+      const mid = new Vec3(
+        (fromLocal.x + cardLocal.x) / 2 + (Math.random() - 0.5) * 40,
+        Math.min(fromLocal.y, cardLocal.y) - 60 - Math.random() * 30,
+        0,
+      );
+
+      const delay = i * 0.08;
+      const duration = 0.32;
+
+      tween(flyNode)
+        .delay(delay)
+        .call(() => { op.opacity = 255; })
+        .to(duration * 0.45, {
+          position: mid,
+          scale: new Vec3(1, 1, 1),
+        }, { easing: 'sineOut' })
+        .to(duration * 0.55, {
+          position: cardLocal.clone(),
+          scale: new Vec3(0.3, 0.3, 1),
+        }, {
+          easing: 'sineIn',
+          onUpdate: (_t, ratio) => {
+            op.opacity = Math.round(255 * (1 - ratio * 0.5));
+          },
+        })
+        .call(() => { if (flyNode.isValid) flyNode.destroy(); })
+        .start();
+    });
+  }
+
+  /** 订单卡星星爆发：交付完成时在订单卡周围爆出彩色星星 */
+  private _spawnOrderStarBurst(card: Node): void {
+    const canvas = GameManager.instance.node;
+    const cardWorldPos = card.getWorldPosition();
+    // 世界坐标转 canvas 本地坐标
+    const canvasTransform = canvas.getComponent(UITransform);
+    const cardLocal = canvasTransform?.convertToNodeSpaceAR(cardWorldPos) ?? cardWorldPos;
+    const colors = [
+      new Color(255, 215, 0, 255),
+      new Color(255, 107, 107, 255),
+      new Color(100, 181, 246, 255),
+      new Color(129, 199, 132, 255),
+      new Color(206, 147, 216, 255),
+    ];
+
+    const count = 10;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+      const dist = 40 + Math.random() * 50;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+
+      const node = new Node('orderStar');
+      node.layer = canvas.layer;
+      const size = 5 + Math.random() * 5;
+      node.addComponent(UITransform).setContentSize(size, size);
+      node.setPosition(cardLocal);
+      canvas.addChild(node);
+      node.setSiblingIndex(canvas.children.length - 1);
+
+      const g = node.addComponent(Graphics);
+      g.fillColor = color;
+      // 画四角星
+      const r = size / 2;
+      g.moveTo(0, r);
+      g.lineTo(r * 0.3, r * 0.3);
+      g.lineTo(r, 0);
+      g.lineTo(r * 0.3, -r * 0.3);
+      g.lineTo(0, -r);
+      g.lineTo(-r * 0.3, -r * 0.3);
+      g.lineTo(-r, 0);
+      g.lineTo(-r * 0.3, r * 0.3);
+      g.close();
+      g.fill();
+
+      const op = node.addComponent(UIOpacity);
+      op.opacity = 255;
+      node.setScale(0.3, 0.3, 1);
+
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist;
+
+      tween(node)
+        .to(0.12, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
+        .to(0.4, {
+          position: new Vec3(cardLocal.x + dx, cardLocal.y + dy, 0),
+          scale: new Vec3(0.2, 0.2, 1),
+        }, {
+          easing: 'quadOut',
+          onUpdate: (_t, ratio) => {
+            op.opacity = Math.round(255 * (1 - ratio));
+          },
+        })
+        .call(() => { if (node.isValid) node.destroy(); })
+        .start();
+    }
   }
 }

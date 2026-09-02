@@ -3,7 +3,6 @@ import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransfor
 import type { EconomyState, EnergyState } from '../core/types';
 import { GameManager } from '../manager/GameManager';
 import { createSpriteNode, createLabel, UI_COLORS } from './ui-factory';
-import { registerTutorialTarget, unregisterTutorialTarget } from '../core/tutorial-target';
 import { TapZoneComponent } from './tap-zone';
 import { openBundleModal, showPageToast } from './bundle-pages';
 import { SettingsModal } from './SettingsModal';
@@ -118,7 +117,6 @@ export class StatusBarComponent extends Component {
     gm.events.off('energy:changed', this._onEnergyChanged);
     gm.events.off('economy:changed', this._onEconomyChanged);
     gm.events.off('save:loaded', this._refreshAll);
-    unregisterTutorialTarget('statusbar-energy');
   }
 
   /** 构建完整顶栏 UI（仅一次） */
@@ -210,11 +208,6 @@ export class StatusBarComponent extends Component {
     g.strokeColor = borderColor;
     g.roundRect(-entry.width / 2, -PILL_H / 2, entry.width, PILL_H, PILL_RADIUS);
     g.stroke();
-
-    // 新手引导目标：精力药丸
-    if (isEnergy) {
-      registerTutorialTarget('statusbar-energy', pill);
-    }
 
     // 图标（贴药丸左侧，统一使用图片资源，与 Web 版一致）
     const iconX = -entry.width / 2 + PILL_PAD_X + ICON_SIZE / 2;

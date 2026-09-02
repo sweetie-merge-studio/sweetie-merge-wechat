@@ -1,4 +1,4 @@
-import { _decorator, BlockInputEvents, Color, Component, Graphics, Label, Node, RichText, Sprite, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, BlockInputEvents, Color, Component, EventTouch, Graphics, Input, Label, Node, RichText, Sprite, UITransform, Vec3, Widget, input } from 'cc';
 
 import { TapZoneComponent, popModalLayer, pushModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
@@ -553,6 +553,33 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   body.addComponent(UITransform).setContentSize(pw - SHELL_PAD_SIDE * 2, bodyH);
   body.setPosition(new Vec3(0, bodyY, 0));
   panel.addChild(body);
+
+  // 关闭按钮从 header 移到 panel 最上层：body 后添加会盖住 header 子树，
+  // 全局 TapZone 虽不受渲染层级影响，但移到 panel 直属于最上层可避免
+  // 内容区 Mask/Graphics 子树在某些平台下吞掉触摸事件的问题。
+  close.setParent(panel);
+  close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - CLOSE_TAP / 2, headerY, 0));
+  close.setSiblingIndex(panel.children.length - 1);
+
+  // 独立全局监听：先用无坐标检测的方式确认事件能收到，
+  // 后续再收紧到关闭按钮矩形范围。
+  const closeUi = close.getComponent(UITransform)!;
+  input.on(Input.EventType.TOUCH_END, (event: EventTouch) => {
+    if (!root.isValid) return;
+    const pos = event.getLocation();
+    const wp = close.worldPosition;
+    const halfW = closeUi.width / 2;
+    const halfH = closeUi.height / 2;
+    const inClose = (
+      pos.x >= wp.x - halfW && pos.x <= wp.x + halfW &&
+      pos.y >= wp.y - halfH && pos.y <= wp.y + halfH
+    );
+    console.info('[modal-close] TOUCH_END', 'pos=', pos, 'closeWorld=', wp, 'inClose=', inClose);
+    if (inClose) {
+      try { playSfx('popup_close'); } catch (e) {}
+      root.destroy();
+    }
+  }, root);
 
   fontManager.applyFontToTree(panel);
 

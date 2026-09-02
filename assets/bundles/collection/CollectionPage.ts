@@ -16,21 +16,11 @@ import {
   paintRoundRect,
 } from '../../scripts/components/collection-cells';
 import { buildTabBar, type CollectionTab } from '../../scripts/components/collection-tabs';
-import {
-  RING_COMPLETE,
-  RING_PROGRESS,
-  drawProgressRing,
-  makeNode,
-} from '../../scripts/components/collection-effects';
-import { FloatEffect } from '../../scripts/components/effect-float';
-import { RainbowBorderEffect } from '../../scripts/components/effect-rainbow-border';
-import { SparkleEffect } from '../../scripts/components/effect-sparkle';
 import { levelSubtitle, showItemDetail } from '../../scripts/components/collection-detail';
 import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { createScrollView, type ScrollView } from '../../scripts/components/drag-scroll';
-import { CATEGORIES, RARE_ITEM_BY_CATEGORY, getItemSpritePath } from '../../scripts/data/items';
-import { getShardCount, getShardsRequired, isRareCompleted } from '../../scripts/core/shard';
+import { CATEGORIES, getItemSpritePath } from '../../scripts/data/items';
 import { playSfx } from '../../scripts/manager/AudioManager';
 import { fontManager } from '../../scripts/core/font-manager';
 
@@ -48,23 +38,6 @@ const CELL_H = 150;
 const MOTHER_H = 64;
 /** 品类卡总高：两行子棋 + 母棋条 */
 const CATEGORY_CARD_H = CARD_PAD * 2 + CELL_H * 2 + CELL_GAP + MOTHER_H + 8;
-
-/** 稀有卡：2 列（Web .rare-grid repeat(2, 1fr)） */
-const RARE_COLS = 2;
-const RARE_GAP = 16;
-const RARE_W = (CONTENT_W - RARE_GAP) / RARE_COLS;
-const RARE_H = 250;
-/** 进度环半径与线宽（Web .showcase-ring r=42 stroke-width=5 等比放大） */
-const RING_R = 46;
-const RING_W = 8;
-
-/** 完成卡的四颗粒子（对应 Web .s-particle p1..p4 的位置与延迟差） */
-const RARE_PARTICLES: readonly { x: number; y: number; size: number; color: Color; delay: number }[] = [
-  { x: 74, y: 34, size: 20, color: new Color(255, 138, 181, 255), delay: 0 },
-  { x: -80, y: -18, size: 24, color: new Color(139, 164, 255, 255), delay: 0.8 },
-  { x: -66, y: 40, size: 18, color: new Color(200, 109, 215, 255), delay: 1.5 },
-  { x: 82, y: -24, size: 22, color: new Color(255, 184, 108, 255), delay: 2.2 },
-];
 
 /** 经济卡：合成链一行 4 级 */
 const CHAIN_CARD_H = 240;
@@ -85,9 +58,8 @@ const CHAIN_LEN = 4;
 /**
  * 图鉴页（collection 分包）。
  *
- * 布局对齐 Web 版 Collection.vue：顶部三段 Tab（物品 / 稀有 / 经济），
+ * 布局对齐 Web 版 Collection.vue：顶部两段 Tab（物品 / 经济），
  * - 物品：每个品类一张卡，内含 4×2 子棋网格 + 底部母棋条；
- * - 稀有：2 列展示卡，碎片点阵 + 进度数字；
  * - 经济：金币 / 钻石 / 精力三条合成链，箭头连接。
  *
  * 小游戏侧没有 DOM 滚动，内容超出一屏时用上下翻页按钮分页。
@@ -103,7 +75,6 @@ export class CollectionPageComponent extends Component {
   protected onLoad(): void {
     const gm = GameManager.instance;
     gm.events.on('collection:changed', this._onChanged);
-    gm.events.on('shard:changed', this._onChanged);
 
     // 顶部 Tab 行
     const tabRow = new Node('tabRow');
@@ -128,7 +99,6 @@ export class CollectionPageComponent extends Component {
     // 页面销毁时必须退订，GameManager 是常驻单例
     const gm = GameManager.instance;
     gm.events.off('collection:changed', this._onChanged);
-    gm.events.off('shard:changed', this._onChanged);
   }
 
   private _switchTab(tab: CollectionTab): void {
@@ -149,9 +119,7 @@ export class CollectionPageComponent extends Component {
     const cards =
       this._activeTab === 'items'
         ? this._buildItemsTab()
-        : this._activeTab === 'rare'
-          ? this._buildRareTab()
-          : this._buildCurrencyTab();
+        : this._buildCurrencyTab();
 
     this._layoutScroll(cards);
 
@@ -190,13 +158,6 @@ export class CollectionPageComponent extends Component {
 
     const finalH = Math.max(usedH, viewH);
     scroll.setContentHeight(finalH);
-    if (finalH > viewH) {
-      const shift = (finalH - viewH) / 2;
-      for (const child of content.children) {
-        const p = child.position;
-        child.setPosition(new Vec3(p.x, p.y + shift, p.z));
-      }
-    }
   }
 
   /** 向上找到弹窗根节点（用于 showPageToast / showItemDetail，避免被面板裁剪） */
@@ -295,181 +256,6 @@ export class CollectionPageComponent extends Component {
         name: `${catName}工坊`,
         subtitle: '母棋',
       });
-  }
-
-  /* ─── 稀有 Tab：2 列展示卡 + 碎片点阵 ─── */
-
-  private _buildRareTab(): { h: number; build: (parent: Node, y: number) => void }[] {
-    const gm = GameManager.instance;
-    const rares = CATEGORIES.filter(c => RARE_ITEM_BY_CATEGORY.has(c.id));
-    const rows: { h: number; build: (parent: Node, y: number) => void }[] = [];
-
-    for (let i = 0; i < rares.length; i += RARE_COLS) {
-      const rowCats = rares.slice(i, i + RARE_COLS);
-      rows.push({
-        h: RARE_H,
-        build: (parent: Node, y: number): void => {
-          rowCats.forEach((cat, col) => {
-            const rare = RARE_ITEM_BY_CATEGORY.get(cat.id)!;
-            const x = -CONTENT_W / 2 + RARE_W / 2 + col * (RARE_W + RARE_GAP);
-            this._buildRareCard(parent, new Vec3(x, y, 0), {
-              id: rare.id,
-              name: rare.name,
-              emoji: rare.emoji,
-              categoryName: cat.name,
-              count: getShardCount(gm.shard, cat.id),
-              required: getShardsRequired(cat.id),
-              completed: isRareCompleted(gm.shard, cat.id),
-            });
-          });
-        },
-      });
-    }
-    return rows;
-  }
-
-  private _buildRareCard(
-    parent: Node,
-    pos: Vec3,
-    info: {
-      id: string;
-      name: string;
-      emoji: string;
-      categoryName: string;
-      count: number;
-      required: number;
-      completed: boolean;
-    },
-  ): void {
-    const card = new Node(`rare_${info.id}`);
-    card.layer = parent.layer;
-    card.addComponent(UITransform).setContentSize(RARE_W, RARE_H);
-    card.setPosition(pos);
-    parent.addChild(card);
-
-    const started = info.count > 0;
-    paintRoundRect(
-      card,
-      RARE_W,
-      RARE_H,
-      22,
-      info.completed ? new Color(255, 250, 255, 220) : started ? new Color(255, 255, 255, 140) : LOCKED_BG,
-      // 完成态的描边交给流光组件逐帧重绘，这里不画静态描边
-      info.completed ? undefined : started ? new Color(200, 160, 220, 110) : LOCKED_BORDER,
-      2,
-    );
-
-    if (info.completed) {
-      const border = makeNode(card, 'rainbow', RARE_W, new Vec3(0, 0, 0));
-      const fx = border.addComponent(RainbowBorderEffect);
-      fx.width = RARE_W;
-      fx.height = RARE_H;
-    }
-
-    this._buildRareRing(card, info);
-
-    addLabel(card, info.name, {
-      size: 22,
-      color: info.completed ? new Color(156, 39, 176, 255) : UI_COLORS.textBrown,
-      bold: true,
-      y: -6,
-      width: RARE_W - 20,
-    });
-    addLabel(card, info.categoryName, {
-      size: 18,
-      color: TEXT_MUTED,
-      y: -34,
-      width: RARE_W - 20,
-    });
-
-    if (info.completed) {
-      const badge = new Node('badge');
-      badge.layer = card.layer;
-      badge.addComponent(UITransform).setContentSize(120, 36);
-      badge.setPosition(new Vec3(0, -RARE_H / 2 + 34, 0));
-      card.addChild(badge);
-      paintRoundRect(badge, 120, 36, 12, new Color(200, 109, 215, 255));
-      addLabel(badge, '已收集', { size: 20, color: new Color(255, 255, 255, 255), bold: true });
-
-      // 完成卡可点开详情（未完成的还不知道长什么样，保持不可点）
-      const zone = card.addComponent(TapZoneComponent);
-      zone.onTap = () =>
-        showItemDetail(this._getModalRoot(), {
-          spritePath: getItemSpritePath(info.id),
-          emoji: info.emoji,
-          name: info.name,
-          subtitle: levelSubtitle(0, info.categoryName),
-        });
-      return;
-    }
-
-    this._buildShardDots(card, info.count, info.required);
-    addLabel(card, `${info.count}/${info.required}`, {
-      size: 20,
-      color: started ? UNCLAIMED_STROKE : TEXT_MUTED,
-      bold: true,
-      y: -RARE_H / 2 + 24,
-    });
-  }
-
-  /**
-   * 稀有卡的圆形进度环 + 中心展示（Web .showcase-ring-wrap）。
-   * 完成后中心 emoji 漂浮，四角撒粒子。
-   */
-  private _buildRareRing(
-    card: Node,
-    info: { id: string; emoji: string; count: number; required: number; completed: boolean },
-  ): void {
-    const ringY = RARE_H / 2 - 66;
-    const ring = makeNode(card, 'ring', RING_R * 2 + RING_W, new Vec3(0, ringY, 0));
-    drawProgressRing(
-      ring,
-      RING_R,
-      RING_W,
-      info.completed ? 1 : info.count / info.required,
-      info.completed ? RING_COMPLETE : RING_PROGRESS,
-    );
-
-    if (!info.completed) {
-      // 未完成：环心放锁，进度靠环 + 点阵表达
-      addSprite(ring, LOCK_SPRITE, 40);
-      return;
-    }
-
-    // 完成：环心 emoji 漂浮（稀有物品暂无贴图，emoji 即 Web .showcase-emoji）
-    const center = makeNode(ring, 'center', RING_R * 2, new Vec3(0, 0, 0));
-    center.addComponent(FloatEffect);
-    addLabel(center, info.emoji, { size: 56, color: UI_COLORS.textBrown });
-
-    RARE_PARTICLES.forEach((p, i) => {
-      const node = makeNode(card, `particle_${i}`, p.size, new Vec3(p.x, ringY + p.y, 0));
-      const fx = node.addComponent(SparkleEffect);
-      fx.delay = p.delay;
-      addLabel(node, i % 2 === 0 ? '✦' : '✧', { size: p.size, color: p.color });
-    });
-  }
-
-  /** 碎片点阵（Web .shard-dots）：已得的点填金色 */
-  private _buildShardDots(card: Node, count: number, required: number): void {
-    const dot = 14;
-    const gap = 6;
-    const totalW = required * dot + (required - 1) * gap;
-    const startX = -totalW / 2 + dot / 2;
-    for (let i = 0; i < required; i++) {
-      const d = new Node(`dot_${i}`);
-      d.layer = card.layer;
-      d.addComponent(UITransform).setContentSize(dot, dot);
-      d.setPosition(new Vec3(startX + i * (dot + gap), -RARE_H / 2 + 54, 0));
-      card.addChild(d);
-      paintRoundRect(
-        d,
-        dot,
-        dot,
-        dot / 2,
-        i < count ? UNCLAIMED_STROKE : new Color(216, 200, 216, 80),
-        undefined,
-      );
-    }
   }
 
   /* ─── 经济 Tab：合成链 ─── */

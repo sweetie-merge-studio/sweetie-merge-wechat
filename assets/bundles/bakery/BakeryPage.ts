@@ -40,7 +40,7 @@ export class BakeryPageComponent extends Component {
   private readonly _onChanged = (): void => this._render();
 
   protected onLoad(): void {
-    createPageChrome(this.node, '烘焙坊');
+    createPageChrome(this.node, '');
 
     const gm = GameManager.instance;
     gm.events.on('bakery:changed', this._onChanged);

@@ -6,7 +6,6 @@ import type { ModalShellOptions } from './modal-chrome';
 import { playSfx } from '../manager/AudioManager';
 import { TapZoneComponent } from './tap-zone';
 import { createSpriteNode, UI_COLORS } from './ui-factory';
-import { registerTutorialTarget, unregisterTutorialTarget } from '../core/tutorial-target';
 import { fontManager } from '../core/font-manager';
 
 const { ccclass } = _decorator;
@@ -50,7 +49,7 @@ interface TabPage {
 const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: TabPage }> = [
   {
     key: 'daily', label: '每日', enLabel: 'Daily',
-    page: { bundle: 'daily', component: 'DailyPageComponent' },
+    page: { bundle: 'daily', component: 'DailyPageComponent', modal: { width: 660, height: 1060, title: '每日小任务', iconPath: 'sprites/ui/nav/nav_daily', subtitle: '做完任务有甜甜的奖励哦' } },
   },
   {
     key: 'collection', label: '图鉴', enLabel: 'Journal',
@@ -59,7 +58,7 @@ const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: 
   { key: 'home', label: '首页', enLabel: 'Home' },
   {
     key: 'backpack', label: '背包', enLabel: 'Backpack',
-    page: { bundle: 'backpack', component: 'BackpackPageComponent', modal: { width: 660, height: 820, title: '背包' } },
+    page: { bundle: 'backpack', component: 'BackpackPageComponent', modal: { width: 660, height: 820, title: '我的小背包', iconPath: 'sprites/ui/basket_bread' } },
   },
   {
     key: 'shop', label: '商店', enLabel: 'Shop',
@@ -190,19 +189,12 @@ export class BottomNavComponent extends Component {
         hitArea.addComponent(UITransform).setContentSize(step, 220);
         hitArea.setPosition(new Vec3(0, 50, 0));
         tabNode.addChild(hitArea);
-        // 注册新手引导目标：用实际可点击区域 hitArea（覆盖凸出的图标+文字），
-        // 而非 tabNode（仅通栏内区域，中心偏低会漏掉上方图标）
-        if (tab.key === 'daily') {
-          registerTutorialTarget('nav-daily', hitArea);
-        }
         const zone = hitArea.addComponent(TapZoneComponent);
         zone.debugName = `nav-${tabKey}`;
         zone.onTap = () => {
           playSfx('click');
           const canvas = this.node.parent;
           if (!canvas) return;
-          // 引导最后一步是「点每日签到」，进页即算完成
-          if (tabKey === 'daily') GameManager.instance.completeTutorialStep('dailyCheckIn');
           // 先关闭已有的弹窗/分包页面，实现 tab 间切换（不必手动关一个再开另一个）
           for (const child of canvas.children) {
             if (child.isValid && (child.name.startsWith('BundlePage_') || child.name.startsWith('Modal_'))) {
@@ -223,9 +215,5 @@ export class BottomNavComponent extends Component {
     }
 
     fontManager.applyFontToTree(this.node);
-  }
-
-  protected onDestroy(): void {
-    unregisterTutorialTarget('nav-daily');
   }
 }

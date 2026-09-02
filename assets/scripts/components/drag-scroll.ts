@@ -2,8 +2,10 @@ import { _decorator, Color, Component, EventTouch, Graphics, Input, input, Mask,
 
 const { ccclass } = _decorator;
 
+export type ScrollDirection = 'vertical' | 'horizontal';
+
 /**
- * 竖向拖拽滚动区。
+ * 拖拽滚动区（支持竖向 / 横向）。
  *
  * 为什么不用 Cocos 的 ScrollView：本项目相机/适配调整后节点触摸命中链路失效
  * （见 tap-zone.ts 与 RUNBOOK 的同款结论），ScrollView 依赖节点触摸事件驱动，
@@ -13,16 +15,22 @@ const { ccclass } = _decorator;
  * 所以滚动后子节点上的 TapZoneComponent 仍能正确命中，无需额外补偿。
  *
  * 用法：
- *   const view = createScrollView(parent, w, h);   // 返回可视区节点
- *   view.content                                   // 往这里塞内容
- *   view.setContentHeight(totalHeight);            // 内容高度变化后调用
+ *   const sv = createScrollView(parent, w, h);                // 竖向
+ *   const sv = createScrollView(parent, w, h, 'horizontal');   // 横向
+ *   sv.content                                   // 往这里塞内容
+ *   sv.setContentHeight(totalHeight);            // 竖向内容高度变化后调用
+ *   sv.setContentWidth(totalWidth);              // 横向内容宽度变化后调用
  */
 @ccclass('DragScrollComponent')
 export class DragScrollComponent extends Component {
   /** 实际承载内容的子节点 */
   content: Node | null = null;
-  /** 内容总高；小于等于可视高时不滚动 */
+  /** 滚动方向（默认竖向） */
+  direction: ScrollDirection = 'vertical';
+  /** 内容总高（竖向用）；小于等于可视高时不滚动 */
   contentHeight = 0;
+  /** 内容总宽（横向用）；小于等于可视宽时不滚动 */
+  contentWidth = 0;
   /** 触摸优先级提升（占位兼容，微信端触摸优先级由 tap-zone 模态层管理） */
   priorityBoost = 0;
 
@@ -30,7 +38,7 @@ export class DragScrollComponent extends Component {
   private static readonly DRAG_THRESHOLD = 8;
 
   private _dragging = false;
-  private _startY = 0;
+  private _startPos = 0;
   private _startOffset = 0;
   private _offset = 0;
 
@@ -64,10 +72,14 @@ export class DragScrollComponent extends Component {
     );
   }
 
-  /** 可滚动的最大偏移（内容比可视区高出来的部分） */
+  /** 可滚动的最大偏移（内容比可视区多出来的部分） */
   private get _maxOffset(): number {
-    const viewH = this.node.getComponent(UITransform)?.height ?? 0;
-    return Math.max(0, this.contentHeight - viewH);
+    const ui = this.node.getComponent(UITransform);
+    if (!ui) return 0;
+    if (this.direction === 'horizontal') {
+      return Math.max(0, this.contentWidth - ui.width);
+    }
+    return Math.max(0, this.contentHeight - ui.height);
   }
 
   private _apply(): void {
@@ -75,23 +87,32 @@ export class DragScrollComponent extends Component {
     if (!c?.isValid) return;
     const clamped = Math.min(Math.max(this._offset, 0), this._maxOffset);
     this._offset = clamped;
-    // content 顶部对齐可视区顶部，向下增大 y 即把后面的内容拉上来
-    c.setPosition(new Vec3(c.position.x, clamped, 0));
+    if (this.direction === 'horizontal') {
+      // 横向：content 左对齐可视区左边缘，向左增大偏移即把后面的内容拉进来
+      c.setPosition(new Vec3(-clamped, c.position.y, 0));
+    } else {
+      // 竖向：content 顶部对齐可视区顶部，向下增大 y 即把后面的内容拉上来
+      c.setPosition(new Vec3(c.position.x, clamped, 0));
+    }
   }
 
   private _onStart(event: EventTouch): void {
     if (this._maxOffset <= 0 || !this._inView(event)) return;
     this._dragging = true;
-    this._startY = event.getUILocation().y;
+    const p = event.getUILocation();
+    this._startPos = this.direction === 'horizontal' ? p.x : p.y;
     this._startOffset = this._offset;
   }
 
   private _onMove(event: EventTouch): void {
     if (!this._dragging) return;
-    const dy = event.getUILocation().y - this._startY;
-    if (Math.abs(dy) < DragScrollComponent.DRAG_THRESHOLD) return;
-    // 手指上滑（dy 为负）时看后面的内容，所以偏移取反向
-    this._offset = this._startOffset - dy;
+    const p = event.getUILocation();
+    const cur = this.direction === 'horizontal' ? p.x : p.y;
+    const d = cur - this._startPos;
+    if (Math.abs(d) < DragScrollComponent.DRAG_THRESHOLD) return;
+    // 竖向：手指上滑（dy 负）看后面内容，偏移取反向
+    // 横向：手指左滑（dx 负）看后面内容，偏移取反向
+    this._offset = this._startOffset - d;
     this._apply();
   }
 
@@ -99,14 +120,26 @@ export class DragScrollComponent extends Component {
     this._dragging = false;
   }
 
-  /** 内容高度变化后调用，会重新夹取当前偏移 */
+  /** 内容高度变化后调用（竖向），会重新夹取当前偏移 */
   setContentHeight(h: number): void {
     this.contentHeight = h;
     this._apply();
   }
 
-  /** 回到顶部 */
+  /** 内容宽度变化后调用（横向），会重新夹取当前偏移 */
+  setContentWidth(w: number): void {
+    this.contentWidth = w;
+    this._apply();
+  }
+
+  /** 回到顶部（竖向） */
   scrollToTop(): void {
+    this._offset = 0;
+    this._apply();
+  }
+
+  /** 回到起始位置（横向） */
+  scrollToStart(): void {
     this._offset = 0;
     this._apply();
   }
@@ -117,13 +150,21 @@ export interface ScrollView {
   view: Node;
   /** 内容容器，往这里加子节点 */
   content: Node;
-  /** 内容高度变化后调用 */
+  /** 内容高度变化后调用（竖向） */
   setContentHeight: (h: number) => void;
+  /** 内容宽度变化后调用（横向） */
+  setContentWidth: (w: number) => void;
   scrollToTop: () => void;
+  scrollToStart: () => void;
 }
 
-/** 建一个竖向滚动区：Mask 裁剪 + 拖拽位移 */
-export function createScrollView(parent: Node, width: number, height: number): ScrollView {
+/** 建一个滚动区：Mask 裁剪 + 拖拽位移。direction 默认竖向 */
+export function createScrollView(
+  parent: Node,
+  width: number,
+  height: number,
+  direction: ScrollDirection = 'vertical',
+): ScrollView {
   const view = new Node('scrollView');
   view.layer = parent.layer;
   view.addComponent(UITransform).setContentSize(width, height);
@@ -148,11 +189,14 @@ export function createScrollView(parent: Node, width: number, height: number): S
 
   const drag = view.addComponent(DragScrollComponent);
   drag.content = content;
+  drag.direction = direction;
 
   return {
     view,
     content,
     setContentHeight: h => drag.setContentHeight(h),
+    setContentWidth: w => drag.setContentWidth(w),
     scrollToTop: () => drag.scrollToTop(),
+    scrollToStart: () => drag.scrollToStart(),
   };
 }

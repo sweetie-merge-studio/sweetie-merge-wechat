@@ -13,6 +13,7 @@
           "gfx-webgl",
           "graphics",
           "intersection-2d",
+          "mask",
           "profiler",
           "sorting-2d",
           "tween",
@@ -55,7 +56,7 @@
             "_value": false
           },
           "mask": {
-            "_value": false
+            "_value": true
           },
           "graphics": {
             "_value": true

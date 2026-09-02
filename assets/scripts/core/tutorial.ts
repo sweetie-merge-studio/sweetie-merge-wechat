@@ -1,16 +1,14 @@
 /**
  * 新手引导 — 步骤定义 + 纯函数状态管理
+ *
+ * 设计原则：只教最核心的两个操作，其余（订单/精力/签到/商店）玩家自行探索。
+ * 步骤过多会打断游戏节奏、让指引显得不连贯。
  */
 
 /** 步骤 ID */
 export type TutorialStepId =
   | 'tapMother'
-  | 'tapMotherAgain'
-  | 'dragMerge'
-  | 'firstOrder'
-  | 'deliverOrder'
-  | 'energyIntro'
-  | 'dailyCheckIn';
+  | 'dragMerge';
 
 /** 步骤定义 */
 export interface TutorialStepDef {
@@ -35,14 +33,11 @@ export interface TutorialState {
 // ─── 步骤配置表 ───────────────────────────────────────
 
 export const TUTORIAL_STEPS: readonly TutorialStepDef[] = [
-  { id: 'tapMother',      text: '点击工坊，生产第一个面包！', target: 'board-mother',      requireAction: true },
-  { id: 'tapMotherAgain', text: '再点一次，凑齐一对！',       target: 'board-mother',      requireAction: true },
-  { id: 'dragMerge',      text: '拖到一起，合成！',           target: 'board-merge-pair',  requireAction: true },
-  { id: 'firstOrder',     text: '有顾客下单啦，来看看吧！',     target: 'tutorial-order-card', requireAction: false, autoCompleteMs: 500 },
-  { id: 'deliverOrder',   text: '点击领取按钮，完成订单！',    target: 'order-collect-btn', requireAction: true },
-  // 能量认知（蓝图 §1 闭环）：首单完成后提示精力机制——纯展示步骤，到点自动推进
-  { id: 'energyIntro',    text: '做甜品会消耗精力，精力会随时间慢慢恢复！', target: 'statusbar-energy', requireAction: false, autoCompleteMs: 3000 },
-  { id: 'dailyCheckIn',   text: '每天签到领奖励！',           target: 'nav-daily',         requireAction: true, spotPadding: 20 },
+  // 第一步：点母体产出。完成条件由 BoardManager 控制——棋盘上出现2个相同物品时才推进，
+  // 确保第二步拖拽合成有东西可拖，两步连贯不中断。
+  { id: 'tapMother', text: '点一点工坊，生出小面包吧！', target: 'board-mother', requireAction: true },
+  // 第二步：拖拽合成。两个相同物品拖到一起即完成，核心玩法闭环。
+  { id: 'dragMerge', text: '把两个一样的拖到一起，变变变！', target: 'board-merge-pair', requireAction: true },
 ];
 
 // ─── 纯函数 ──────────────────────────────────────────

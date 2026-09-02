@@ -391,17 +391,6 @@ export class CashierCounterComponent extends Component {
     g.roundRect(-BTN_W / 2 + 3, BTN_H / 2 - 6, BTN_W - 6, 4, 2);
     g.fill();
 
-    const labelNode = new Node('label');
-    labelNode.layer = btn.layer;
-    labelNode.addComponent(UITransform);
-    btn.addChild(labelNode);
-    const label = labelNode.addComponent(Label);
-    label.string = '烘焙坊';
-    label.fontSize = 20;
-    label.lineHeight = 24;
-    label.isBold = true;
-    label.color = new Color(255, 248, 238, 255);
-
     btn.addComponent(TapZoneComponent).onTap = () => {
       playSfx('click');
       const canvas = this.node.parent;

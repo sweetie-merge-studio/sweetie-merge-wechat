@@ -6,6 +6,7 @@ import type {
   Cell,
   EconomyState,
   EnergyState,
+  ItemId,
   Platform,
   ShardState,
 } from '../core/types';
@@ -65,7 +66,7 @@ import {
   unlockSlotsCost,
   type BackpackState,
 } from '../core/backpack';
-import { RARE_ITEM_BY_CATEGORY, getItemById, type Category } from '../data/items';
+import { RARE_ITEM_BY_CATEGORY, getItemById, isMother, type Category } from '../data/items';
 import { completeOrder, createOrderState, isOrderComplete, isValidOrderState, type OrderState } from '../core/order';
 import { getConfig } from '../core/config';
 import { serialize, deserialize } from '../core/storage';
@@ -136,6 +137,16 @@ export class GameManager extends Component {
   tutorial: TutorialState = createTutorialState();
 
   platform: Platform = wechatPlatform;
+
+  // --- 连击系统 ---
+  /** 当前连击数（首次合成为 1，连续合成递增） */
+  comboCount = 0;
+  /** 上次合成时间戳（用于判断连击是否超时） */
+  private _comboLastTime = 0;
+  /** 连击时间窗口（毫秒），3 秒内继续合成算连击 */
+  private static readonly COMBO_WINDOW_MS = 3000;
+  /** 连击超时定时器 */
+  private _comboTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _energyAccumMs = 0;
   private _saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -455,10 +466,19 @@ export class GameManager extends Component {
     const spawnIdx = activateMother(this.board, idx, this.energy, this.tutorialActive);
     if (spawnIdx < 0) return false;
 
-    // 引导前两步都是「点母棋产出」，按当前步推进
+    // 点母体指引：棋盘上出现2个及以上相同的可合成物品时才完成，
+    // 确保下一步「拖拽合成」有东西可拖，两步连贯不中断。
     const step = this.tutorialStep;
-    if (step?.id === 'tapMother' || step?.id === 'tapMotherAgain') {
-      this.completeTutorialStep(step.id);
+    if (step?.id === 'tapMother') {
+      const counts = new Map<string, number>();
+      for (const c of this.board) {
+        if (c.itemId && !isMother(c.itemId)) {
+          counts.set(c.itemId, (counts.get(c.itemId) ?? 0) + 1);
+        }
+      }
+      if (Array.from(counts.values()).some(n => n >= 2)) {
+        this.completeTutorialStep('tapMother');
+      }
     }
     this.events.emit('board:changed', this.board);
     this.events.emit('energy:changed', this.energy);
@@ -474,13 +494,58 @@ export class GameManager extends Component {
     this.events.emit('board:changed', this.board);
     this.scheduleSave();
     if (merged) {
-      this.events.emit('fx:merge', to);
+      const resultId = this.board[to]?.itemId;
+      this.events.emit('fx:merge', to, resultId);
       playSfx('merge');
       this._advanceDaily('merge_10');
       this.completeTutorialStep('dragMerge');
+      this._updateCombo();
+    } else {
+      // 合成失败（交换）时连击中断
+      this._resetCombo();
     }
     this.autoMatchOrders();
     return merged;
+  }
+
+  /**
+   * 更新连击计数：在时间窗口内连续合成则递增，否则重置为 1。
+   * 触发 combo:changed 事件，UI 层据此显示连击文字并增强特效。
+   */
+  private _updateCombo(): void {
+    const now = Date.now();
+    if (now - this._comboLastTime <= GameManager.COMBO_WINDOW_MS && this.comboCount > 0) {
+      this.comboCount += 1;
+    } else {
+      this.comboCount = 1;
+    }
+    this._comboLastTime = now;
+
+    // 清除旧的超时定时器
+    if (this._comboTimer) {
+      clearTimeout(this._comboTimer);
+      this._comboTimer = null;
+    }
+    // 设置新的超时：窗口结束后连击清零
+    this._comboTimer = setTimeout(() => {
+      this.comboCount = 0;
+      this._comboTimer = null;
+      this.events.emit('combo:changed', 0);
+    }, GameManager.COMBO_WINDOW_MS);
+
+    this.events.emit('combo:changed', this.comboCount);
+  }
+
+  /** 连击中断（合成失败/交换时）：清零并广播 */
+  private _resetCombo(): void {
+    if (this._comboTimer) {
+      clearTimeout(this._comboTimer);
+      this._comboTimer = null;
+    }
+    if (this.comboCount !== 0) {
+      this.comboCount = 0;
+      this.events.emit('combo:changed', 0);
+    }
   }
 
   // --- 订单交付（对齐 Web useGame：自动匹配 + 手动领取） ---
@@ -526,9 +591,8 @@ export class GameManager extends Component {
    * @returns 实际发放的金币数（未领取成功返回 0），供订单翻倍弹窗计算等额加倍
    */
   collectOrder(orderId: string): number {
-    // 引导期间只放行 deliverOrder 那一步，避免玩家跳过教学直接清订单
-    const guard = this.tutorialStep;
-    if (guard && guard.id !== 'deliverOrder') return 0;
+    // 引导期间阻止领取订单，让玩家专注核心操作（点母体+拖拽合成）
+    if (this.tutorialStep) return 0;
 
     const order = this.order.activeOrders.find(o => o.id === orderId);
     if (!order || !isOrderComplete(order)) return 0;
@@ -579,7 +643,6 @@ export class GameManager extends Component {
       }
     }
     this._advanceDaily('order_2');
-    this.completeTutorialStep('deliverOrder');
     this.events.emit('board:changed', this.board);
     this.events.emit('economy:changed', this.economy);
     this.events.emit('energy:changed', this.energy);
@@ -1059,6 +1122,40 @@ export class GameManager extends Component {
         }
         break;
     }
+  }
+
+  // --- 商店购买 ---
+
+  /**
+   * 金币购买商店物品：扣金币后优先存进背包，背包满了才放棋盘空位，都满则失败。
+   * 成功后触发 economy:changed + backpack:changed（或 board:changed），自动匹配订单。
+   */
+  buyShopItem(itemId: ItemId, price: number): boolean {
+    if (this.economy.coins < price) return false;
+
+    // 优先进背包
+    if (addToBackpack(this.backpack, itemId)) {
+      spendCoins(this.economy, price);
+      this.events.emit('economy:changed', this.economy);
+      this.events.emit('backpack:changed', this.backpack);
+      this.scheduleSave();
+      return true;
+    }
+
+    // 背包满，尝试放棋盘空位
+    const boardIdx = findEmptyCell(this.board);
+    if (boardIdx >= 0) {
+      spendCoins(this.economy, price);
+      this.board[boardIdx] = { itemId };
+      this.events.emit('economy:changed', this.economy);
+      this.events.emit('board:changed', this.board);
+      this.events.emit('fx:spawn', boardIdx);
+      this.autoMatchOrders();
+      this.scheduleSave();
+      return true;
+    }
+
+    return false;
   }
 
   // --- 烘焙坊 / 装饰 ---

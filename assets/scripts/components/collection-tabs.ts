@@ -7,10 +7,10 @@ import { UI_COLORS } from './ui-factory';
 /**
  * 图鉴页顶部 Tab 条（对齐 Web 版 Collection.vue 的 TabBar）。
  *
- * Web 版是 物品 / 稀有 / 经济 三段式分段控件：整条浅褐轨道，选中项贴白底。
+ * Web 版是 物品 / 经济 两段式分段控件：整条浅褐轨道，选中项贴白底。
  */
 
-export type CollectionTab = 'items' | 'rare' | 'currency';
+export type CollectionTab = 'items' | 'currency';
 
 export interface TabDef {
   readonly id: CollectionTab;
@@ -20,7 +20,6 @@ export interface TabDef {
 
 export const COLLECTION_TABS: readonly TabDef[] = [
   { id: 'items', label: '物品', icon: 'sprites/ui/nav/nav_collection' },
-  { id: 'rare', label: '稀有', icon: 'sprites/currency/diamond' },
   { id: 'currency', label: '经济', icon: 'sprites/currency/coin_single' },
 ];
 
