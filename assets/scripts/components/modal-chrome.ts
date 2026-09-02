@@ -250,11 +250,11 @@ const SHELL_TITLE_OUTLINE_W = 3;
 const SHELL_ICON_SIZE = 42;
 
 /** 关闭按钮 */
-const SHELL_CLOSE_SIZE = 44;
+const SHELL_CLOSE_SIZE = 56;
 const SHELL_CLOSE_BG = new Color(232, 213, 184, 255);
 const SHELL_CLOSE_BORDER = new Color(196, 168, 122, 255);
 const SHELL_CLOSE_COLOR = new Color(139, 99, 64, 255);
-const SHELL_CLOSE_FONT = 24;
+const SHELL_CLOSE_FONT = 28;
 
 /** 副标题气泡 */
 export const SHELL_SUBTITLE_H = 42;
@@ -497,6 +497,9 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
       root.destroy();
     }
   };
+  close.getComponent(TapZoneComponent)!.debugName = `modal-close-${opts.title}`;
+  // 关闭按钮提到最上层，避免被面板内后添加的内容盖住
+  close.setSiblingIndex(header.children.length - 1);
 
   // 副标题气泡
   let subtitleLabel: RichText | null = null;

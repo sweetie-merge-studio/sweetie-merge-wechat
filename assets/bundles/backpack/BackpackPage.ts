@@ -130,9 +130,10 @@ export class BackpackPageComponent extends Component {
     footer.setPosition(new Vec3(0, cursor - FOOTER_H / 2 + 12, 0));
 
     // 动态调整弹窗面板高度（找到 modalPanel 父节点）
+    // 面板总高 = 背包内容高 + 外壳开销（顶部padding60 + header52 + gap16 + 底部padding18 = 146）
     let panel: Node | null = this.node;
     while (panel && panel.name !== 'modalPanel') panel = panel.parent;
-    if (panel) resizeModalPanel(panel, totalH + 40);
+    if (panel) resizeModalPanel(panel, totalH + 146);
   }
 
   private _buildSlot(parent: Node, pos: Vec3, idx: number, itemId?: string): void {
