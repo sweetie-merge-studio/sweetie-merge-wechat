@@ -168,49 +168,6 @@ export class GameManager extends Component {
     GameManager._instance = this;
     director.addPersistRootNode(this.node);
 
-    // === 全局触摸诊断（临时排障，定位"点击无反应"根因） ===
-    // 在所有组件 onEnable 之前注册，确保能看到 input 事件是否真的派发到了全局
-    let _diagTouchCount = 0;
-    const _diagOnTouchStart = (event: EventTouch): void => {
-      _diagTouchCount++;
-      const p = event.getUILocation();
-      const loc = event.getLocation();
-      // 检查是否有模态层/分包页面挡住了点击
-      const overlays = this.node.children.filter(
-        c => c.isValid && (c.name.startsWith('Modal_') || c.name.startsWith('BundlePage_') || c.name === 'TutorialOverlay'),
-      );
-      const overlayInfo = overlays.map(c => `${c.name}(active=${c.activeInHierarchy})`).join(',') || 'none';
-      console.info(
-        `[DIAG-TOUCH] #${_diagTouchCount} type=TOUCH_START`,
-        `ui=(${p.x.toFixed(0)},${p.y.toFixed(0)})`,
-        `screen=(${loc.x.toFixed(0)},${loc.y.toFixed(0)})`,
-        `overlays=[${overlayInfo}]`,
-        `canvasChildren=${this.node.children.length}`,
-      );
-      // 前 3 次触摸打印所有直接子节点的世界坐标和尺寸，排查"看得见点不到"
-      if (_diagTouchCount <= 3) {
-        for (const child of this.node.children) {
-          if (!child.isValid) continue;
-          const ui = child.getComponent(UITransform);
-          const wp = child.worldPosition;
-          console.info(
-            `[DIAG-NODE] ${child.name}`,
-            `active=${child.activeInHierarchy}`,
-            `worldPos=(${wp.x.toFixed(0)},${wp.y.toFixed(0)})`,
-            `size=(${ui?.width ?? '?'}x${ui?.height ?? '?'})`,
-            `anchor=(${ui?.anchorX ?? '?'},${ui?.anchorY ?? '?'})`,
-          );
-        }
-      }
-      // 打 10 次后自动卸载，避免日志刷屏
-      if (_diagTouchCount >= 10) {
-        input.off(Input.EventType.TOUCH_START, _diagOnTouchStart, this);
-        console.info('[DIAG-TOUCH] 已收集 10 次触摸，自动卸载诊断监听器');
-      }
-    };
-    input.on(Input.EventType.TOUCH_START, _diagOnTouchStart, this);
-    console.info('[DIAG-TOUCH] 全局触摸诊断已启动，点击屏幕查看日志');
-    // === 诊断结束 ===
     // 小游戏被系统杀进程不会走 onDestroy，切后台（onHide）时必须立即落盘，
     // 否则防抖窗口内（SAVE_DEBOUNCE_MS）的最近操作会丢
     game.on(Game.EVENT_HIDE, this._onGameHide, this);

@@ -1,6 +1,9 @@
-import { _decorator, Component, EventTouch, Input, Node, input, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, EventTouch, Input, Node, UITransform, Vec2, Vec3, input } from 'cc';
 
 const { ccclass } = _decorator;
+
+/** 全局诊断开关：默认关闭，排障时可临时开启打印所有 TapZone 的生命周期与命中结果 */
+const TAP_DIAG = false;
 
 /**
  * 当前置顶的模态根节点。非空时只有它子树内的点击区响应。
@@ -69,7 +72,16 @@ export class TapZoneComponent extends Component {
     input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
-    if (this.debugName) console.info(`[tap] ENABLE ${this.debugName} parent=${this.node.parent?.name} active=${this.node.activeInHierarchy}`);
+    if (TAP_DIAG || this.debugName) {
+      const inModal = this._modalBlockDebug();
+      console.info(
+        `[tap] ENABLE name=${this.node.name}${this.debugName ? ' debug=' + this.debugName : ''}`,
+        `parent=${this.node.parent?.name} active=${this.node.activeInHierarchy}`,
+        `size=${this.node.getComponent(UITransform)?.width}x${this.node.getComponent(UITransform)?.height}`,
+        `worldPos=(${this.node.worldPosition.x.toFixed(0)},${this.node.worldPosition.y.toFixed(0)})`,
+        `modal=${inModal}`,
+      );
+    }
   }
 
   protected onDisable(): void {
@@ -77,7 +89,9 @@ export class TapZoneComponent extends Component {
     input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this._onTouchCancel, this);
     this._startedInside = false;
-    if (this.debugName) console.info(`[tap] DISABLE ${this.debugName} parent=${this.node.parent?.name}`);
+    if (TAP_DIAG || this.debugName) {
+      console.info(`[tap] DISABLE name=${this.node.name}${this.debugName ? ' debug=' + this.debugName : ''}`);
+    }
   }
 
   /** 触点（UI 世界坐标）是否落在本节点矩形内（锚点感知） */
@@ -116,17 +130,46 @@ export class TapZoneComponent extends Component {
     );
     const hitB = inWorldRect(posUI.x, posUI.y) || inWorldRect(posW.x, posW.y);
 
-    return hitA || hitB;
+    // 方式 C：引擎内置 getBoundingBoxToWorld（最可靠，不依赖手动矩阵计算）
+    // 前两种方式在 FIXED_WIDTH 适配 + 深层节点（弹窗→滚动区→卡片）下可能坐标系不一致，
+    // 引擎内置的包围盒计算走的是同一条世界变换管线，与渲染用的矩阵完全一致。
+    let hitC = false;
+    try {
+      const worldBox = ui.getBoundingBoxToWorld();
+      hitC = worldBox.contains(new Vec2(posUI.x, posUI.y)) || worldBox.contains(new Vec2(posW.x, posW.y));
+    } catch (e) {
+      // getBoundingBoxToWorld 在极端情况下（节点未激活/无父节点）可能抛错，静默降级
+    }
+
+    if (this.debugName) {
+      console.info(
+        `[tap] HIT ${this.debugName}`,
+        `hitA=${hitA} hitB=${hitB} hitC=${hitC}`,
+        `ui=(${posUI.x.toFixed(0)},${posUI.y.toFixed(0)})`,
+        `world=(${posW.x.toFixed(0)},${posW.y.toFixed(0)})`,
+        `nodeWorld=(${wp.x.toFixed(0)},${wp.y.toFixed(0)})`,
+        `rect=(${left.toFixed(0)},${bottom.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
+        `modal=${this._modalBlockDebug()}`,
+      );
+    }
+
+    return hitA || hitB || hitC;
   }
 
   private _onTouchStart(event: EventTouch): void {
-    this._startedInside = this._hit(event);
-    if (this.debugName) {
+    try {
+      this._startedInside = this._hit(event);
+    } catch (e) {
+      console.error('[tap] _hit threw:', e);
+      this._startedInside = false;
+    }
+    if (TAP_DIAG || this.debugName) {
       const p = event.getUILocation();
       const ui = this.node.getComponent(UITransform);
       const local = ui?.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
       console.info(
-        `[tap] START ${this.debugName} inside=${this._startedInside}`,
+        `[tap] START name=${this.node.name}${this.debugName ? ' debug=' + this.debugName : ''}`,
+        `inside=${this._startedInside}`,
         `ui=(${p.x.toFixed(0)},${p.y.toFixed(0)})`,
         `local=(${local?.x.toFixed(0)},${local?.y.toFixed(0)})`,
         `size=(${ui?.width}x${ui?.height}) anchor=(${ui?.anchorX},${ui?.anchorY})`,
@@ -145,9 +188,18 @@ export class TapZoneComponent extends Component {
   private _onTouchEnd(event: EventTouch): void {
     const started = this._startedInside;
     this._startedInside = false;
-    const hitNow = this._hit(event);
-    if (this.debugName) {
-      console.info(`[tap] END ${this.debugName} started=${started} hitNow=${hitNow} willFire=${started && hitNow}`);
+    let hitNow = false;
+    try {
+      hitNow = this._hit(event);
+    } catch (e) {
+      console.error('[tap] _hit(end) threw:', e);
+    }
+    if (TAP_DIAG || this.debugName) {
+      console.info(
+        `[tap] END name=${this.node.name}${this.debugName ? ' debug=' + this.debugName : ''}`,
+        `started=${started} hitNow=${hitNow} willFire=${started && hitNow}`,
+        `hasOnTap=${this.onTap !== null}`,
+      );
     }
     if (started && hitNow) this.onTap?.();
   }

@@ -91,12 +91,18 @@ export class DragScrollComponent extends Component {
     if (!c?.isValid) return;
     const clamped = Math.min(Math.max(this._offset, 0), this._maxOffset);
     this._offset = clamped;
+    const ui = this.node.getComponent(UITransform);
     if (this.direction === 'horizontal') {
-      // 横向：content 左对齐可视区左边缘，向左增大偏移即把后面的内容拉进来
-      c.setPosition(new Vec3(-clamped, c.position.y, 0));
+      // 横向：初始时 content 左边对齐 view 左边；offset 增大时 content 左移，露出右边内容
+      const viewW = ui?.width ?? 0;
+      const initialX = Math.max(0, (this.contentWidth - viewW) / 2);
+      c.setPosition(new Vec3(initialX - clamped, c.position.y, 0));
     } else {
-      // 竖向：content 顶部对齐可视区顶部，向下增大 y 即把后面的内容拉上来
-      c.setPosition(new Vec3(c.position.x, clamped, 0));
+      // 竖向：初始时 content 顶部对齐 view 顶部；offset 增大时 content 下移，露出上方内容
+      // （手指上滑 → offset 减小 → content 上移 → 露出下方内容，符合直觉）
+      const viewH = ui?.height ?? 0;
+      const initialY = -Math.max(0, (this.contentHeight - viewH) / 2);
+      c.setPosition(new Vec3(c.position.x, initialY + clamped, 0));
     }
   }
 
@@ -114,9 +120,13 @@ export class DragScrollComponent extends Component {
     const cur = this.direction === 'horizontal' ? p.x : p.y;
     const d = cur - this._startPos;
     if (Math.abs(d) < DragScrollComponent.DRAG_THRESHOLD) return;
-    // 竖向：手指上滑（dy 负）看后面内容，偏移取反向
-    // 横向：手指左滑（dx 负）看后面内容，偏移取反向
-    this._offset = this._startOffset - d;
+    if (this.direction === 'horizontal') {
+      // 横向：手指左滑（dx 负）→ offset 增大 → content 左移，露出右边内容
+      this._offset = this._startOffset - d;
+    } else {
+      // 竖向：手指上滑（dy 负）→ offset 减小 → content 上移，露出下方内容
+      this._offset = this._startOffset + d;
+    }
     this._apply();
   }
 
@@ -127,12 +137,20 @@ export class DragScrollComponent extends Component {
   /** 内容高度变化后调用（竖向），会重新夹取当前偏移 */
   setContentHeight(h: number): void {
     this.contentHeight = h;
+    if (this.content?.isValid) {
+      const ui = this.content.getComponent(UITransform);
+      if (ui) ui.height = h;
+    }
     this._apply();
   }
 
   /** 内容宽度变化后调用（横向），会重新夹取当前偏移 */
   setContentWidth(w: number): void {
     this.contentWidth = w;
+    if (this.content?.isValid) {
+      const ui = this.content.getComponent(UITransform);
+      if (ui) ui.width = w;
+    }
     this._apply();
   }
 

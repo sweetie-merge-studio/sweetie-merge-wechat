@@ -58,7 +58,7 @@ const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: 
   { key: 'home', label: '首页', enLabel: 'Home' },
   {
     key: 'backpack', label: '背包', enLabel: 'Backpack',
-    page: { bundle: 'backpack', component: 'BackpackPageComponent', modal: { width: 660, height: 820, title: '我的小背包', iconPath: 'sprites/ui/basket_bread' } },
+    page: { bundle: 'backpack', component: 'BackpackPageComponent', modal: { width: 660, height: 820, title: '我的小背包', iconPath: 'sprites/ui/nav/nav_backpack' } },
   },
   {
     key: 'shop', label: '商店', enLabel: 'Shop',

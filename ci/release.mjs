@@ -108,6 +108,7 @@ function buildContext(args) {
     version: args.version,
     desc: args.desc || `release ${args.version ?? ''}`.trim(),
     debug: args.debug,
+    noMd5: args.noMd5,
   };
 }
 
@@ -146,9 +147,12 @@ function stepTypeCheck() {
 function stepBuild(ctx) {
   // release 包必须开 md5Cache（微信 CDN 缓存按文件名失效，不开会导致热更后玩家拿到旧资源）；
   // debug 包保持原文件名便于对着源码断点。用 buildConfig 文件时以该文件里的配置为准。
+  // --no-md5：开发调试时关闭 md5Cache，避免微信开发者工具静态分析器把运行时动态 import 的
+  // 无 hash 模块名当成文件路径报 ENOENT（不影响运行但干扰调试）。
+  const md5 = ctx.noMd5 ? false : !ctx.debug;
   const buildArg = existsSync(ctx.buildConfigPath)
     ? `configPath=${ctx.buildConfigPath}`
-    : `platform=${ctx.cocosPlatform};debug=${ctx.debug}${ctx.debug ? '' : ';md5Cache=true'}`;
+    : `platform=${ctx.cocosPlatform};debug=${ctx.debug}${md5 ? ';md5Cache=true' : ''}`;
   log(`Cocos 出包（${buildArg}）… 预计 1-5 分钟`);
   const r = run(COCOS_BIN, ['--project', REPO_ROOT, '--build', buildArg], { timeout: BUILD_TIMEOUT_MS });
   if (!COCOS_EXIT_SUCCESS.has(r.code)) {
@@ -237,7 +241,7 @@ function stepUploadDouyin(ctx) {
 // ---------- 参数解析与主流程 ----------
 
 function parseArgs(argv) {
-  const args = { debug: false, check: false, buildOnly: false, skipBuild: false };
+  const args = { debug: false, check: false, buildOnly: false, skipBuild: false, noMd5: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-v' || a === '--version') args.version = argv[++i];
@@ -246,6 +250,7 @@ function parseArgs(argv) {
     else if (a === '--check') args.check = true;
     else if (a === '--build-only') args.buildOnly = true;
     else if (a === '--skip-build') args.skipBuild = true;
+    else if (a === '--no-md5') args.noMd5 = true;
     else if (a === '-h' || a === '--help') { console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0] + '*/'); process.exit(0); }
     else fail(`未知参数：${a}（--help 查看用法）`);
   }

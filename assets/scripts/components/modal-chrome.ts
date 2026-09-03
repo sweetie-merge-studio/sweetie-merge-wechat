@@ -1,4 +1,4 @@
-import { _decorator, BlockInputEvents, Color, Component, EventTouch, Graphics, Input, Label, Node, Sprite, UITransform, Vec3, Widget, input } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Input, Label, Node, Sprite, UITransform, Vec3, Widget, input } from 'cc';
 
 import { TapZoneComponent, popModalLayer, pushModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
@@ -90,7 +90,9 @@ export function buildScrim(root: Node): void {
   g.fillColor = SCRIM;
   g.rect(-ui.width / 2, -ui.height / 2, ui.width, ui.height);
   g.fill();
-  root.addComponent(BlockInputEvents);
+  // 不使用 BlockInputEvents：它在微信小游戏平台会吞掉全局 input 事件，
+  // 导致弹窗内所有 TapZone 收不到 TOUCH_START。
+  // 点击穿透由 modalRoot 模态层机制处理（TapZone._hit 里检查 getModalRoot）。
 }
 
 /** 居中的圆角面板 — 带阴影+边框，对齐 Web 版 Modal 风格 */
@@ -464,47 +466,6 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   titleLabel.verticalAlign = Label.VerticalAlign.CENTER;
   titleLabel.overflow = Label.Overflow.SHRINK;
 
-  // 关闭按钮（点击热区 80x80，可见圆形 56px 居中）
-  const CLOSE_TAP = 80;
-  const close = new Node(SHELL_CLOSE_NAME);
-  close.layer = header.layer;
-  close.addComponent(UITransform).setContentSize(CLOSE_TAP, CLOSE_TAP);
-  close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - CLOSE_TAP / 2, 0, 0));
-  header.addChild(close);
-  const cg = close.addComponent(Graphics);
-  const cr = SHELL_CLOSE_SIZE / 2;
-  cg.fillColor = SHELL_CLOSE_BG;
-  cg.circle(0, 0, cr);
-  cg.fill();
-  cg.lineWidth = 2;
-  cg.strokeColor = SHELL_CLOSE_BORDER;
-  cg.circle(0, 0, cr);
-  cg.stroke();
-  const closeLabelNode = new Node('label');
-  closeLabelNode.layer = close.layer;
-  closeLabelNode.addComponent(UITransform);
-  close.addChild(closeLabelNode);
-  const closeLabel = closeLabelNode.addComponent(Label);
-  closeLabel.string = '✕';
-  closeLabel.fontSize = SHELL_CLOSE_FONT;
-  closeLabel.isBold = true;
-  closeLabel.color = SHELL_CLOSE_COLOR;
-  closeLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
-  closeLabel.verticalAlign = Label.VerticalAlign.CENTER;
-  fontManager.applyFont(closeLabel);
-  const closeTap = close.addComponent(TapZoneComponent);
-  closeTap.debugName = `modal-close-${opts.title}`;
-  closeTap.onTap = () => {
-    try {
-      playSfx('popup_close');
-    } catch (e) {
-      console.warn('[modal-close] playSfx failed:', e);
-    }
-    if (root.isValid) root.destroy();
-  };
-  // 关闭按钮提到最上层，避免被面板内后添加的内容盖住
-  close.setSiblingIndex(header.children.length - 1);
-
   // 副标题气泡
   let subtitleLabel: Label | null = null;
   const hasSubtitle = opts.subtitle !== undefined;
@@ -554,48 +515,70 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   body.setPosition(new Vec3(0, bodyY, 0));
   panel.addChild(body);
 
-  // 关闭按钮从 header 移到 panel 最上层：body 后添加会盖住 header 子树，
-  // 全局 TapZone 虽不受渲染层级影响，但移到 panel 直属于最上层可避免
-  // 内容区 Mask/Graphics 子树在某些平台下吞掉触摸事件的问题。
-  close.setParent(panel);
+  // 关闭按钮：直接挂在 panel 下（最后创建即最上层），避免 setParent 导致
+  // TapZone onEnable/onDisable 时序问题。点击热区 80x80，可见圆形 56px 居中。
+  const CLOSE_TAP = 80;
+  const close = new Node(SHELL_CLOSE_NAME);
+  close.layer = panel.layer;
+  close.addComponent(UITransform).setContentSize(CLOSE_TAP, CLOSE_TAP);
   close.setPosition(new Vec3(pw / 2 - SHELL_PAD_SIDE - CLOSE_TAP / 2, headerY, 0));
-  close.setSiblingIndex(panel.children.length - 1);
+  panel.addChild(close);
+  const cg = close.addComponent(Graphics);
+  const cr = SHELL_CLOSE_SIZE / 2;
+  cg.fillColor = SHELL_CLOSE_BG;
+  cg.circle(0, 0, cr);
+  cg.fill();
+  cg.lineWidth = 2;
+  cg.strokeColor = SHELL_CLOSE_BORDER;
+  cg.circle(0, 0, cr);
+  cg.stroke();
+  const closeLabelNode = new Node('label');
+  closeLabelNode.layer = close.layer;
+  closeLabelNode.addComponent(UITransform);
+  close.addChild(closeLabelNode);
+  const closeLabel = closeLabelNode.addComponent(Label);
+  closeLabel.string = '✕';
+  closeLabel.fontSize = SHELL_CLOSE_FONT;
+  closeLabel.isBold = true;
+  closeLabel.color = SHELL_CLOSE_COLOR;
+  closeLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+  closeLabel.verticalAlign = Label.VerticalAlign.CENTER;
+  fontManager.applyFont(closeLabel);
+  const closeTap = close.addComponent(TapZoneComponent);
+  closeTap.debugName = `modal-close-${opts.title}`;
+  closeTap.onTap = () => {
+    try {
+      playSfx('popup_close');
+    } catch (e) {
+      console.warn('[modal-close] playSfx failed:', e);
+    }
+    if (root.isValid) root.destroy();
+  };
 
-  // 独立全局监听兜底：TapZone 走组件 onEnable/onDisable 生命周期，
-  // close 节点经历 setParent(header→panel) 后在部分平台可能出现监听时序问题；
-  // 这里用与节点生命周期无关的全局监听做双保险。
-  // 命中检测用 convertToNodeSpaceAR（与 BoardComponent._touchToLocal 同款），
-  // 不直接比 worldPosition vs getUILocation，避免坐标系/适配差异导致 inClose 恒 false。
+  // 全局监听兜底：TapZone 走组件生命周期，在极端情况下（节点刚创建第一帧、
+  // 父链变换未更新）可能漏响应；这里用与节点生命周期无关的全局监听做双保险。
+  // 整段包 try-catch，防止任何异常中断后续 TapZone 的 TOUCH_END 回调。
   const closeUi = close.getComponent(UITransform)!;
   let _diagCloseTaps = 0;
   input.on(Input.EventType.TOUCH_END, (event: EventTouch) => {
-    if (!root.isValid) return;
-    _diagCloseTaps++;
-    const pos = event.getUILocation();
-    const touchWorld = new Vec3(pos.x, pos.y, 0);
-    const local = closeUi.convertToNodeSpaceAR(touchWorld);
-    const inClose = (
-      local.x >= -closeUi.anchorX * closeUi.width &&
-      local.x <= (1 - closeUi.anchorX) * closeUi.width &&
-      local.y >= -closeUi.anchorY * closeUi.height &&
-      local.y <= (1 - closeUi.anchorY) * closeUi.height
-    );
-    const wp = close.worldPosition;
-    const canvas = root.parent;
-    const canvasUi = canvas?.getComponent(UITransform);
-    console.info(
-      `[modal-close-diag] #${_diagCloseTaps} title="${opts.title}"`,
-      `ui=(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`,
-      `closeWorld=(${wp.x.toFixed(0)},${wp.y.toFixed(0)})`,
-      `local=(${local.x.toFixed(1)},${local.y.toFixed(1)})`,
-      `size=${closeUi.width}x${closeUi.height} anchor=(${closeUi.anchorX},${closeUi.anchorY})`,
-      `active=${close.activeInHierarchy} parent=${close.parent?.name}`,
-      `canvasSize=${canvasUi?.width ?? '?'}x${canvasUi?.height ?? '?'}`,
-      `inClose=${inClose}`,
-    );
-    if (inClose) {
-      try { playSfx('popup_close'); } catch (e) {}
-      root.destroy();
+    try {
+      if (!root.isValid) return;
+      _diagCloseTaps++;
+      const pos = event.getUILocation();
+      const touchWorld = new Vec3(pos.x, pos.y, 0);
+      const local = closeUi.convertToNodeSpaceAR(touchWorld);
+      const inClose = (
+        local.x >= -closeUi.anchorX * closeUi.width &&
+        local.x <= (1 - closeUi.anchorX) * closeUi.width &&
+        local.y >= -closeUi.anchorY * closeUi.height &&
+        local.y <= (1 - closeUi.anchorY) * closeUi.height
+      );
+      if (inClose) {
+        try { playSfx('popup_close'); } catch (e) {}
+        root.destroy();
+      }
+    } catch (e) {
+      console.warn('[modal-close-global] listener error:', e);
     }
   }, root);
 
