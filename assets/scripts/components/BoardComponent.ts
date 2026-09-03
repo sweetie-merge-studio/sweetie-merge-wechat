@@ -57,6 +57,12 @@ export class BoardComponent extends Component {
   /** 当前拖拽状态 */
   private _dragFromIdx = -1;
   private _dragItemNode: Node | null = null;
+  /** 拖拽物品的原属格子（reparent 到顶层后需要记住，结束时放回去） */
+  private _dragOriginalCell: Node | null = null;
+  /** 背包图标是否处于拖拽悬停态（用于缩放反馈） */
+  private _backpackHovered = false;
+  /** 最后一次 TOUCH_MOVE 的 UI 坐标——touchend 坐标在小游戏平台可能异常，用此兜底 */
+  private _lastMoveUIPos: { x: number; y: number } | null = null;
 
   /** 拖拽目标格高亮节点（常驻，随手指移动显隐） */
   private _highlightNode: Node | null = null;
@@ -242,23 +248,36 @@ export class BoardComponent extends Component {
     if (!gm.board[idx]?.itemId) return;
     this._dragFromIdx = idx;
     this._dragItemNode = this._cellNodes[idx]?.children[0] ?? null;
+    this._dragOriginalCell = this._cellNodes[idx] ?? null;
+    this._lastMoveUIPos = null;
     if (this._dragItemNode) {
       Tween.stopAllByTarget(this._dragItemNode);
+      // 提到顶层容器：确保拖拽物品渲染在背包ICON等所有UI之上
+      // （物品原本是棋盘格子的子节点，棋盘在底部导航之下，永远盖不住背包图标）
+      const top = this.node.parent;
+      if (top) {
+        const worldPos = this._dragItemNode.getWorldPosition();
+        this._dragItemNode.setParent(top);
+        this._dragItemNode.setWorldPosition(worldPos);
+      }
       this._dragItemNode.setScale(this._itemScale * 1.15, this._itemScale * 1.15, 1);
     }
-    // 拖起的物品提到最上层，避免被相邻格子的物品盖住
-    this._cellNodes[idx].setSiblingIndex(this.node.children.length - 1);
   }
 
   private _onTouchMove(event: EventTouch): void {
     if (this._dragFromIdx < 0 || !this._dragItemNode?.isValid) return;
+    const uiPos = event.getUILocation();
+    // 记录最后一次有效移动坐标，供 touchend 兜底（小游戏平台 touchend 坐标可能异常）
+    this._lastMoveUIPos = { x: uiPos.x, y: uiPos.y };
+    // 物品已 reparent 到顶层容器，直接用世界坐标跟随手指
+    this._dragItemNode.setWorldPosition(uiPos.x, uiPos.y, 0);
     const local = this._touchToLocal(event);
-    const cellPos = this._cellNodes[this._dragFromIdx].getPosition();
-    this._dragItemNode.setPosition(local.x - cellPos.x, local.y - cellPos.y, 0);
     const targetIdx = this._cellIndexAt(local);
     this._updateHighlight(targetIdx);
     // 可合成目标发光检测
     this._updateMergeGlow(targetIdx);
+    // 背包图标悬停反馈
+    this._updateBackpackHover(event);
   }
 
   private _onTouchEnd(event: EventTouch): void {
@@ -267,21 +286,72 @@ export class BoardComponent extends Component {
 
     const fromIdx = this._dragFromIdx;
     this._dragFromIdx = -1;
+    if (fromIdx < 0) return;
 
-    // 先复位拖拽节点位置/缩放，早于任何 return 分支
-    if (this._dragItemNode?.isValid) {
+    const gm = GameManager.instance;
+
+    // ── 背包命中检测：放在 reparent 之前，坐标状态最干净 ──
+    // 先用 touchend 事件坐标检测；小游戏平台 touchend 坐标可能异常，
+    // 失败时用最后一次 TOUCH_MOVE 的有效坐标兜底（move 阶段悬停反馈已证明该坐标命中正常）。
+    let overBackpack = this._isTouchOverBackpack(event);
+    let fallbackHit = false;
+    if (!overBackpack && this._lastMoveUIPos) {
+      fallbackHit = this._isPointOverBackpack(this._lastMoveUIPos.x, this._lastMoveUIPos.y);
+      overBackpack = fallbackHit;
+    }
+
+    if (BoardComponent.BACKPACK_HIT_DEBUG) {
+      const endUI = event.getUILocation();
+      const endW = event.getLocation();
+      console.info(
+        '[backpack-end]',
+        `fromIdx=${fromIdx}`,
+        `endUI=(${endUI.x.toFixed(0)},${endUI.y.toFixed(0)})`,
+        `endW=(${endW.x.toFixed(0)},${endW.y.toFixed(0)})`,
+        `lastMove=${this._lastMoveUIPos ? `(${this._lastMoveUIPos.x.toFixed(0)},${this._lastMoveUIPos.y.toFixed(0)})` : 'null'}`,
+        `eventHit=${!fallbackHit && overBackpack} fallbackHit=${fallbackHit} overBackpack=${overBackpack}`,
+      );
+    }
+
+    // ── 复位拖拽节点：放回原格子，早于任何 return 分支 ──
+    if (this._dragItemNode?.isValid && this._dragOriginalCell?.isValid) {
+      this._dragItemNode.setParent(this._dragOriginalCell);
       this._dragItemNode.setPosition(0, 0, 0);
       this._dragItemNode.setScale(this._itemScale, this._itemScale, 1);
     }
     this._dragItemNode = null;
+    this._dragOriginalCell = null;
+    this._lastMoveUIPos = null;
+
+    // 清除背包图标悬停态
+    this._updateBackpackHover(null);
 
     if (this._highlightNode) this._highlightNode.active = false;
     // 清理可合成目标发光
     this._clearMergeGlow();
 
-    if (fromIdx < 0) return;
+    // ── 存入背包 ──
+    if (overBackpack) {
+      const itemId = gm.board[fromIdx]?.itemId;
+      if (BoardComponent.BACKPACK_HIT_DEBUG) {
+        console.info('[backpack-store]', `overBackpack=true itemId=${itemId ?? 'null'} fromIdx=${fromIdx}`, `backpackItems=${gm.backpack.items.length}/${gm.backpack.unlockedSlots}`);
+      }
+      if (itemId) {
+        const ok = gm.storeToBackpack(fromIdx);
+        if (BoardComponent.BACKPACK_HIT_DEBUG) {
+          console.info('[backpack-store]', `storeToBackpack result=${ok}`, `after: backpackItems=${gm.backpack.items.length} boardItem=${gm.board[fromIdx]?.itemId ?? 'empty'}`);
+        }
+        if (ok) {
+          const canvas = this.node.parent;
+          if (canvas) showPageToast(canvas, `${getDisplayName(itemId)} 已收入背包`);
+        } else {
+          const canvas = this.node.parent;
+          if (canvas) showPageToast(canvas, '背包已满，先解锁格子或取出物品');
+        }
+      }
+      return;
+    }
 
-    const gm = GameManager.instance;
     const toIdx = this._cellIndexAt(this._touchToLocal(event));
     const itemId = gm.board[fromIdx]?.itemId;
 
@@ -899,6 +969,107 @@ export class BoardComponent extends Component {
     }
     this._mergeGlowNode = null;
     this._mergeGlowIdx = -1;
+  }
+
+  // --- 拖拽进背包 ---
+
+  /** 临时排障开关：开启后在控制台打印背包命中检测的详细坐标，定位坐标系不一致问题 */
+  private static readonly BACKPACK_HIT_DEBUG = false;
+
+  /**
+   * 获取背包命中目标节点（tab_backpack 下的 hitArea，取不到回退 icon）。
+   */
+  private _getBackpackHitTarget(): { node: Node; ui: UITransform } | null {
+    const nav = this.node.parent?.getChildByName('BottomNav');
+    const tab = nav?.getChildByName('tab_backpack');
+    const target = tab?.getChildByName('hitArea') ?? tab?.getChildByName('icon');
+    if (!target) return null;
+    const ui = target.getComponent(UITransform);
+    if (!ui) return null;
+    return { node: target, ui };
+  }
+
+  /**
+   * 单坐标点是否落在目标节点矩形内——用三种方式并行检测，任一命中即算。
+   *
+   * 与 TapZoneComponent._hit 同构：FIXED_WIDTH 适配下 getUILocation / getLocation
+   * 与节点 worldPosition 可能坐标系不一致，单种方式会漏判，必须多方式兜底。
+   */
+  private _pointInNodeRect(px: number, py: number, node: Node, ui: UITransform): boolean {
+    // 方式 A：convertToNodeSpaceAR（锚点感知的本地坐标）
+    const local = ui.convertToNodeSpaceAR(new Vec3(px, py, 0));
+    const hitA = local.x >= -ui.anchorX * ui.width
+      && local.x <= (1 - ui.anchorX) * ui.width
+      && local.y >= -ui.anchorY * ui.height
+      && local.y <= (1 - ui.anchorY) * ui.height;
+
+    // 方式 B：手动世界矩形（不依赖 convertToNodeSpaceAR）
+    const wp = node.worldPosition;
+    const scale = node.worldScale;
+    const w = ui.width * scale.x;
+    const h = ui.height * scale.y;
+    const left = wp.x - ui.anchorX * w;
+    const bottom = wp.y - ui.anchorY * h;
+    const hitB = px >= left && px <= left + w && py >= bottom && py <= bottom + h;
+
+    // 方式 C：引擎内置 getBoundingBoxToWorld（与渲染同一条世界变换管线，最可靠）
+    let hitC = false;
+    try {
+      const box = ui.getBoundingBoxToWorld();
+      hitC = px >= box.x && px <= box.x + box.width && py >= box.y && py <= box.y + box.height;
+    } catch {
+      // 节点未激活/无父节点时可能抛错，静默降级
+    }
+
+    return hitA || hitB || hitC;
+  }
+
+  /**
+   * 原始坐标点是否落在背包图标命中区内（内部走三种检测方式，任一命中即算）。
+   * 供 _isTouchOverBackpack 和 touchend 兜底（最后一次 move 坐标）共用。
+   */
+  private _isPointOverBackpack(x: number, y: number): boolean {
+    const target = this._getBackpackHitTarget();
+    if (!target) return false;
+    const { node, ui } = target;
+    return this._pointInNodeRect(x, y, node, ui);
+  }
+
+  /**
+   * 触摸事件是否落在背包图标命中区内。
+   * 同时用 getUILocation() 和 getLocation() 两种坐标口径，每种口径走三种检测方式，
+   * 共 6 种组合任一命中即算——彻底覆盖 FIXED_WIDTH 适配下的坐标系不一致问题。
+   */
+  private _isTouchOverBackpack(event: EventTouch): boolean {
+    const posUI = event.getUILocation();
+    const posW = event.getLocation();
+
+    const hitUI = this._isPointOverBackpack(posUI.x, posUI.y);
+    const hitW = this._isPointOverBackpack(posW.x, posW.y);
+
+    if (BoardComponent.BACKPACK_HIT_DEBUG) {
+      const target = this._getBackpackHitTarget();
+      console.info(
+        '[backpack-hit]',
+        `ui=(${posUI.x.toFixed(0)},${posUI.y.toFixed(0)}) hitUI=${hitUI}`,
+        `world=(${posW.x.toFixed(0)},${posW.y.toFixed(0)}) hitW=${hitW}`,
+        target ? `nodeWorld=(${target.node.worldPosition.x.toFixed(0)},${target.node.worldPosition.y.toFixed(0)}) size=${target.ui.width}x${target.ui.height}` : 'target=null',
+      );
+    }
+
+    return hitUI || hitW;
+  }
+
+  /** 背包图标悬停缩放反馈：拖到背包上方时图标放大，离开/结束时恢复 */
+  private _updateBackpackHover(event: EventTouch | null): void {
+    const nav = this.node.parent?.getChildByName('BottomNav');
+    const icon = nav?.getChildByName('tab_backpack')?.getChildByName('icon');
+    if (!icon) return;
+    const hovered = event ? this._isTouchOverBackpack(event) : false;
+    if (hovered === this._backpackHovered) return;
+    this._backpackHovered = hovered;
+    const s = hovered ? 1.15 : 1.0;
+    icon.setScale(s, s, 1);
   }
 
   /** 获取指定格子的世界坐标（供订单交付动画等外部组件使用） */

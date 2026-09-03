@@ -493,13 +493,14 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
     const subLabelNode = new Node(SHELL_SUBTITLE_LABEL_NAME);
     subLabelNode.layer = sub.layer;
     subLabelNode.addComponent(UITransform).setContentSize(subW - 24, SHELL_SUBTITLE_H);
-    subLabelNode.setPosition(new Vec3(0, -18, 0));
+    subLabelNode.setPosition(new Vec3(0, 0, 0));
     sub.addChild(subLabelNode);
     subtitleLabel = subLabelNode.addComponent(Label);
     subtitleLabel.string = opts.subtitle;
     subtitleLabel.fontSize = SHELL_SUBTITLE_FONT;
     subtitleLabel.lineHeight = SHELL_SUBTITLE_H;
     subtitleLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+    subtitleLabel.verticalAlign = Label.VerticalAlign.CENTER;
     subtitleLabel.color = new Color(139, 107, 74, 255);
     fontManager.applyFont(subtitleLabel);
   }

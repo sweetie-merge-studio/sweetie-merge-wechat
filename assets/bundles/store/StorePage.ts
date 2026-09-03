@@ -34,6 +34,7 @@ const ENERGY_WIDE_H = 156;
  * 经像素分析各图非透明内容区域，按内容高度 ≈68px 反推显示尺寸。
  */
 const ENERGY_ICON_SIZES: Record<string, { w: number; h: number }> = {
+  'douyin': { w: 72, h: 80 },
   'sprites/ui/play_button': { w: 66, h: 68 },
   'sprites/ui/energy_bolt': { w: 87, h: 87 },
   'sprites/ui/energy_coin': { w: 67, h: 68 },
@@ -481,12 +482,12 @@ export class StorePageComponent extends Component {
 
     this._drawCardBg(card, CONTENT_W, ENERGY_WIDE_H);
 
-    // 左侧金币图标
+    // 左侧抖音 logo 图标（对齐抖音端统一图标）
     const iconX = -CONTENT_W / 2 + 62;
-    const coinSz = ENERGY_ICON_SIZES['sprites/currency/coin'] ?? { w: 80, h: 80 };
+    const douyinSz = ENERGY_ICON_SIZES['douyin'] ?? { w: 72, h: 80 };
     const wideScale = 96 / 92;
-    this._buildIcon(card, iconX, 0, 96, 'sprites/currency/coin',
-      Math.round(coinSz.w * wideScale), Math.round(coinSz.h * wideScale),
+    this._buildIcon(card, iconX, 0, 96, 'douyin',
+      Math.round(douyinSz.w * wideScale), Math.round(douyinSz.h * wideScale),
     );
 
     // 右侧内容区
@@ -932,6 +933,12 @@ export class StorePageComponent extends Component {
       inner.addComponent(UITransform).setContentSize(iconW, iconH);
       wrapper.addChild(inner);
       this._drawPotionIcon(inner);
+    } else if (iconKey === 'douyin') {
+      const inner = new Node('inner');
+      inner.layer = wrapper.layer;
+      inner.addComponent(UITransform).setContentSize(iconW, iconH);
+      wrapper.addChild(inner);
+      this._drawDouyinIcon(inner, iconH);
     } else {
       const inner = new Node('icon');
       inner.layer = wrapper.layer;
@@ -995,6 +1002,39 @@ export class StorePageComponent extends Component {
     g.strokeColor = new Color(100, 70, 160, 255);
     g.roundRect(-16, -22, 32, 36, 10);
     g.stroke();
+  }
+
+  /** 抖音 logo 音符图标（青色+品红3D偏移，对齐抖音端商店精力卡片统一图标） */
+  private _drawDouyinIcon(node: Node, h: number = 80): void {
+    const g = node.addComponent(Graphics);
+    const s = h / 80;
+
+    const drawNote = (ox: number, oy: number, color: Color): void => {
+      g.fillColor = color;
+      // 符头（圆形）
+      g.circle(ox - 12 * s, oy - 12 * s, 14 * s);
+      g.fill();
+      // 符干
+      g.rect(ox - 1 * s, oy - 12 * s, 5.5 * s, 50 * s);
+      g.fill();
+      // 符尾（旗帜形，贝塞尔曲线）
+      g.moveTo(ox + 4.5 * s, oy + 38 * s);
+      g.bezierCurveTo(
+        ox + 22 * s, oy + 34 * s,
+        ox + 36 * s, oy + 22 * s,
+        ox + 30 * s, oy + 8 * s,
+      );
+      g.lineTo(ox + 4.5 * s, oy + 16 * s);
+      g.close();
+      g.fill();
+    };
+
+    // 品红层（右下偏移）
+    drawNote(3 * s, -3 * s, new Color(254, 44, 85, 255));
+    // 青色层（左上偏移）
+    drawNote(-3 * s, 3 * s, new Color(37, 244, 238, 255));
+    // 白色主层
+    drawNote(0, 0, Color.WHITE);
   }
 
   /** 画一个金色圆形播放按钮（获取钻石免费档） */
@@ -1092,13 +1132,13 @@ export class StorePageComponent extends Component {
   private _energyOptions(): EnergyOption[] {
     const cfg = getConfig();
     const opts: EnergyOption[] = [
-      { id: 'en1', label: '看广告', amount: cfg.energy.adReward, type: 'ad', icon: 'sprites/ui/play_button' },
+      { id: 'en1', label: '看广告', amount: cfg.energy.adReward, type: 'ad', icon: 'douyin' },
     ];
     if (cfg.features.diamondSpend) {
       opts.push(
-        { id: 'en2', label: '精力药水', amount: 20, type: 'diamond', diamondCost: 3, icon: 'sprites/ui/energy_bolt' },
-        { id: 'en3', label: '精力药水', amount: 40, type: 'diamond', diamondCost: 5, icon: 'sprites/ui/energy_coin' },
-        { id: 'en4', label: '精力药水', amount: 60, type: 'diamond', diamondCost: 8, icon: 'sprites/ui/energy_potion' },
+        { id: 'en2', label: '精力药水', amount: 20, type: 'diamond', diamondCost: 3, icon: 'douyin' },
+        { id: 'en3', label: '精力药水', amount: 40, type: 'diamond', diamondCost: 5, icon: 'douyin' },
+        { id: 'en4', label: '精力药水', amount: 60, type: 'diamond', diamondCost: 8, icon: 'douyin' },
       );
     }
     opts.push({
@@ -1107,7 +1147,7 @@ export class StorePageComponent extends Component {
       amount: cfg.energy.coinRefillAmount,
       type: 'coins',
       coinCost: cfg.energy.coinRefillCost,
-      icon: 'sprites/currency/coin',
+      icon: 'douyin',
     });
     return opts;
   }
