@@ -1,4 +1,4 @@
-import { BlockInputEvents, Color, Graphics, Label, Node, UIOpacity, UITransform, Vec3, view } from 'cc';
+import { BlockInputEvents, Color, Graphics, Node, UIOpacity, UITransform, Vec3, view } from 'cc';
 
 import { makeNode } from './collection-effects';
 import { PopInEffect } from './effect-pop-in';

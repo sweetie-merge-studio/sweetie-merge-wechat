@@ -12,7 +12,6 @@ import {
   createModalRoot,
   setButtonBusy,
 } from './modal-chrome';
-import { TapZoneComponent } from './tap-zone';
 
 const { ccclass } = _decorator;
 

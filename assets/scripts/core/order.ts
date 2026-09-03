@@ -1,5 +1,5 @@
 import type { ItemId } from './types';
-import { getItems, getItemById, getCategories } from '../data/items';
+import { getItems, getItemById } from '../data/items';
 import type { Category } from '../data/items';
 import { getUnlockedCategoriesByLevel } from './level';
 

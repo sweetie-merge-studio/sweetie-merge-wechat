@@ -558,15 +558,17 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   // 全局监听兜底：TapZone 走组件生命周期，在极端情况下（节点刚创建第一帧、
   // 父链变换未更新）可能漏响应；这里用与节点生命周期无关的全局监听做双保险。
   // 整段包 try-catch，防止任何异常中断后续 TapZone 的 TOUCH_END 回调。
+  // 注意：必须在 root 销毁时移除监听，否则每次开弹窗都会泄漏一个全局 TOUCH_END 监听。
   const closeUi = close.getComponent(UITransform)!;
   let _diagCloseTaps = 0;
-  input.on(Input.EventType.TOUCH_END, (event: EventTouch) => {
+  const _touchWorld = new Vec3();
+  const _onGlobalTouchEnd = (event: EventTouch): void => {
     try {
       if (!root.isValid) return;
       _diagCloseTaps++;
       const pos = event.getUILocation();
-      const touchWorld = new Vec3(pos.x, pos.y, 0);
-      const local = closeUi.convertToNodeSpaceAR(touchWorld);
+      _touchWorld.set(pos.x, pos.y, 0);
+      const local = closeUi.convertToNodeSpaceAR(_touchWorld);
       const inClose = (
         local.x >= -closeUi.anchorX * closeUi.width &&
         local.x <= (1 - closeUi.anchorX) * closeUi.width &&
@@ -580,7 +582,11 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
     } catch (e) {
       console.warn('[modal-close-global] listener error:', e);
     }
-  }, root);
+  };
+  input.on(Input.EventType.TOUCH_END, _onGlobalTouchEnd, root);
+  root.once(Node.EventType.NODE_DESTROYED, () => {
+    input.off(Input.EventType.TOUCH_END, _onGlobalTouchEnd, root);
+  });
 
   fontManager.applyFontToTree(panel);
 

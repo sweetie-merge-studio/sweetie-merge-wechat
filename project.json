@@ -16,7 +16,7 @@
       "path": "assets",
       "isBundle": true,
       "priority": 1,
-      "compressionType": "none"
+      "compressionType": "compress"
     },
     "bakery": {
       "path": "assets/bundles/bakery",

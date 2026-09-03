@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Graphics, Label, Node, Sprite, Tween, UITransform, Vec3, Widget, tween } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, Tween, UITransform, Vec3, Widget, tween } from 'cc';
 
 import { GameManager } from '../manager/GameManager';
 import { TapZoneComponent } from './tap-zone';

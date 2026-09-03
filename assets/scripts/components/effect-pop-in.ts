@@ -11,9 +11,11 @@ export class PopInEffect extends Component {
   duration = 0.35;
 
   private _t = 0;
+  private _scaleVec = new Vec3();
 
   protected onLoad(): void {
-    this.node.setScale(new Vec3(0.5, 0.5, 1));
+    this._scaleVec.set(0.5, 0.5, 1);
+    this.node.setScale(this._scaleVec);
   }
 
   protected update(dt: number): void {
@@ -21,7 +23,11 @@ export class PopInEffect extends Component {
     this._t = Math.min(this.duration, this._t + dt);
     const x = this._t / this.duration;
     const s = 1 + 2.7 * Math.pow(x - 1, 3) + 1.7 * Math.pow(x - 1, 2);
-    this.node.setScale(new Vec3(s, s, 1));
-    if (this._t >= this.duration) this.node.setScale(new Vec3(1, 1, 1));
+    this._scaleVec.set(s, s, 1);
+    this.node.setScale(this._scaleVec);
+    if (this._t >= this.duration) {
+      this._scaleVec.set(1, 1, 1);
+      this.node.setScale(this._scaleVec);
+    }
   }
 }

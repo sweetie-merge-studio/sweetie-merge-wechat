@@ -1,7 +1,6 @@
 import { _decorator, BlockInputEvents, Color, Component, Graphics, Label, Node, Sprite, UITransform, Vec3, view } from 'cc';
 
 import { CATEGORIES, type Category, getItemSpritePath, getMotherItemId } from '../data/items';
-import { getLevelDef } from '../core/level';
 import { TapZoneComponent, pushModalLayer, popModalLayer } from './tap-zone';
 import { UI_COLORS } from './ui-factory';
 import { loadSpriteFrame, applySpriteFrame } from './sprite-loader';

@@ -91,9 +91,12 @@ class SpeechBubbleEffect extends Component {
   private _baseY = 0;
   /** 全局时间（用于 sin 波动） */
   private _globalT = 0;
+  /** 复用的缩放向量，避免 update 中逐帧 new Vec3 */
+  private _scaleVec = new Vec3();
 
   protected onLoad(): void {
-    this.node.setScale(new Vec3(0.1, 0.1, 1));
+    this._scaleVec.set(0.1, 0.1, 1);
+    this.node.setScale(this._scaleVec);
     this.node.angle = 0;
     this._uiOpacity = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
     this._uiOpacity.opacity = 0;
@@ -154,7 +157,8 @@ class SpeechBubbleEffect extends Component {
 
     const s = 1 + 2.9 * Math.pow(x - 1, 3) + 1.9 * Math.pow(x - 1, 2);
     const scale = Math.max(0.1, s);
-    this.node.setScale(new Vec3(scale, scale, 1));
+    this._scaleVec.set(scale, scale, 1);
+    this.node.setScale(this._scaleVec);
 
     const wobble = Math.sin(x * Math.PI * 1.5) * (1 - x) * -5;
     this.node.angle = wobble;
@@ -167,7 +171,8 @@ class SpeechBubbleEffect extends Component {
     }
 
     if (this._t >= this._popDuration) {
-      this.node.setScale(new Vec3(1, 1, 1));
+      this._scaleVec.set(1, 1, 1);
+      this.node.setScale(this._scaleVec);
       this.node.angle = 0;
       if (this._uiOpacity) this._uiOpacity.opacity = 255;
       if (this._customerTyped < this.fullText.length) {
@@ -269,7 +274,8 @@ class SpeechBubbleEffect extends Component {
     const easeK = k * k;
 
     const scale = 0.75 + 0.25 * easeK;
-    this.node.setScale(new Vec3(scale, scale, 1));
+    this._scaleVec.set(scale, scale, 1);
+    this.node.setScale(this._scaleVec);
 
     if (this._uiOpacity) this._uiOpacity.opacity = Math.floor(255 * easeK);
 

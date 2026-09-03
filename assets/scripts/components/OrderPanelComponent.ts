@@ -7,7 +7,7 @@ import { GameManager } from '../manager/GameManager';
 import { hasOpenBundlePage, showPageToast } from './bundle-pages';
 import { OrderDoubleModal } from './OrderDoubleModal';
 import { TapZoneComponent } from './tap-zone';
-import { createSpriteNode, UI_COLORS } from './ui-factory';
+import { createSpriteNode } from './ui-factory';
 import { loadSpriteFrame, applySpriteFrame } from './sprite-loader';
 import { spawnFlyingCoins } from './coin-fly';
 import { BoardComponent } from './BoardComponent';
@@ -102,6 +102,8 @@ export class OrderPanelComponent extends Component {
   private _startX = 0;
   private _startContentX = 0;
   private _startCardIdx = -1;
+  /** 复用的位置向量，避免触摸/滚动热路径反复 new Vec3 */
+  private _posVec = new Vec3();
 
   protected onEnable(): void {
     const gm = GameManager.instance;
@@ -219,7 +221,8 @@ export class OrderPanelComponent extends Component {
     if (!this._content) return;
     const x = this._content.position.x + delta;
     const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
-    this._content.setPosition(new Vec3(clamped, 0, 0));
+    this._posVec.set(clamped, 0, 0);
+    this._content.setPosition(this._posVec);
     this._updateArrowVisibility();
   }
 
@@ -259,7 +262,8 @@ export class OrderPanelComponent extends Component {
     const ui = vp.getComponent(UITransform);
     if (!ui) return false;
     const p = event.getUILocation();
-    const local = ui.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    this._posVec.set(p.x, p.y, 0);
+    const local = ui.convertToNodeSpaceAR(this._posVec);
     return (
       local.x >= -ui.width / 2 &&
       local.x <= ui.width / 2 &&
@@ -276,7 +280,8 @@ export class OrderPanelComponent extends Component {
     const nodeUi = this.node.getComponent(UITransform);
     if (!nodeUi) return false;
     const p = event.getUILocation();
-    const local = nodeUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    this._posVec.set(p.x, p.y, 0);
+    const local = nodeUi.convertToNodeSpaceAR(this._posVec);
     const half = ARROW_SIZE / 2;
     if (left?.activeInHierarchy) {
       const lx = -VIEW_W / 2 + ARROW_SIZE / 2 - 2;
@@ -308,7 +313,8 @@ export class OrderPanelComponent extends Component {
     this._dragging = true;
     if (this._content) {
       const clamped = Math.min(Math.max(this._startContentX + dx, -this._halfScroll), this._halfScroll);
-      this._content.setPosition(new Vec3(clamped, 0, 0));
+      this._posVec.set(clamped, 0, 0);
+      this._content.setPosition(this._posVec);
       this._updateArrowVisibility();
     }
   }
@@ -319,7 +325,8 @@ export class OrderPanelComponent extends Component {
       if (this._content) {
         const x = this._content.position.x;
         const clamped = Math.min(Math.max(x, -this._halfScroll), this._halfScroll);
-        this._content.setPosition(new Vec3(clamped, 0, 0));
+        this._posVec.set(clamped, 0, 0);
+        this._content.setPosition(this._posVec);
         this._updateArrowVisibility();
       }
     } else {
@@ -407,7 +414,8 @@ export class OrderPanelComponent extends Component {
     const contentUi = content.getComponent(UITransform);
     if (!contentUi) return -1;
     const p = event.getUILocation();
-    const local = contentUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    this._posVec.set(p.x, p.y, 0);
+    const local = contentUi.convertToNodeSpaceAR(this._posVec);
     const step = CARD_WIDTH + CARD_GAP;
     const originX = -this._contentWidth / 2 + CARD_WIDTH / 2;
     for (let i = 0; i < this._visibleOrders.length; i++) {
@@ -432,7 +440,8 @@ export class OrderPanelComponent extends Component {
     if (!order) return -1;
 
     const p = event.getUILocation();
-    const local = cardUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    this._posVec.set(p.x, p.y, 0);
+    const local = cardUi.convertToNodeSpaceAR(this._posVec);
 
     const reqs = order.requirements;
     const n = reqs.length;
@@ -466,7 +475,8 @@ export class OrderPanelComponent extends Component {
     if (!cardUi) return false;
 
     const p = event.getUILocation();
-    const local = cardUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    this._posVec.set(p.x, p.y, 0);
+    const local = cardUi.convertToNodeSpaceAR(this._posVec);
 
     const hitX = Math.abs(local.x) <= AVATAR_SIZE / 2 + 4;
     const hitY = Math.abs(local.y - AVATAR_Y) <= AVATAR_SIZE / 2 + 4;

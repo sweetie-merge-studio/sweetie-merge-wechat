@@ -1,4 +1,4 @@
-import { _decorator, assetManager, Component, EventTouch, Game, Input, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, input, profiler, view } from 'cc';
+import { _decorator, assetManager, Component, Game, Input, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, input, profiler, view } from 'cc';
 
 import type {
   BlindBoxResult,

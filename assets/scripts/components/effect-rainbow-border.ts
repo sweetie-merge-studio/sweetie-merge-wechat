@@ -25,6 +25,7 @@ export class RainbowBorderEffect extends Component {
 
   private _t = 0;
   private _g: Graphics | null = null;
+  private _strokeColor = new Color();
 
   protected onLoad(): void {
     this._g = this.node.addComponent(Graphics);
@@ -43,12 +44,13 @@ export class RainbowBorderEffect extends Component {
 
     g.clear();
     g.lineWidth = this.lineWidth;
-    g.strokeColor = new Color(
+    this._strokeColor.set(
       Math.round(from.r + (to.r - from.r) * k),
       Math.round(from.g + (to.g - from.g) * k),
       Math.round(from.b + (to.b - from.b) * k),
       255,
     );
+    g.strokeColor = this._strokeColor;
     g.roundRect(-this.width / 2, -this.height / 2, this.width, this.height, this.radius);
     g.stroke();
   }

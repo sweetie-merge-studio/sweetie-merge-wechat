@@ -1,8 +1,8 @@
-import { _decorator, Color, Component, Graphics, Label, Node, Sprite, UITransform, Vec3, Widget } from 'cc';
+import { _decorator, Color, Component, Graphics, Label, Node, UITransform, Vec3, Widget } from 'cc';
 
 import type { EconomyState, EnergyState } from '../core/types';
 import { GameManager } from '../manager/GameManager';
-import { createSpriteNode, createLabel, UI_COLORS } from './ui-factory';
+import { createSpriteNode, createLabel } from './ui-factory';
 import { TapZoneComponent } from './tap-zone';
 import { openBundleModal, showPageToast } from './bundle-pages';
 import { SettingsModal } from './SettingsModal';

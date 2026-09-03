@@ -4,6 +4,9 @@ const { ccclass } = _decorator;
 
 export type ScrollDirection = 'vertical' | 'horizontal';
 
+/** _inView 复用的临时向量（同步执行不重入，模块级 scratch 安全） */
+const _scratchVec = new Vec3();
+
 /**
  * 拖拽滚动区（支持竖向 / 横向）。
  *
@@ -41,6 +44,14 @@ export class DragScrollComponent extends Component {
   private _startPos = 0;
   private _startOffset = 0;
   private _offset = 0;
+  /** 缓存的 UITransform 引用，避免热路径反复 getComponent */
+  private _ui: UITransform | null = null;
+  /** 复用的位置向量，避免 _apply 逐帧 new Vec3 */
+  private _posVec = new Vec3();
+
+  protected onLoad(): void {
+    this._ui = this.node.getComponent(UITransform);
+  }
 
   protected onEnable(): void {
     input.on(Input.EventType.TOUCH_START, this._onStart, this);
@@ -60,10 +71,11 @@ export class DragScrollComponent extends Component {
   /** 触点是否落在可视区内（UI 坐标与世界坐标都试，任一命中即算） */
   private _inView(event: EventTouch): boolean {
     if (!this.node.activeInHierarchy) return false;
-    const ui = this.node.getComponent(UITransform);
+    const ui = this._ui ?? this.node.getComponent(UITransform);
     if (!ui) return false;
     const inRect = (x: number, y: number): boolean => {
-      const local = ui.convertToNodeSpaceAR(new Vec3(x, y, 0));
+      _scratchVec.set(x, y, 0);
+      const local = ui.convertToNodeSpaceAR(_scratchVec);
       return (
         local.x >= -ui.anchorX * ui.width &&
         local.x <= (1 - ui.anchorX) * ui.width &&
@@ -78,7 +90,7 @@ export class DragScrollComponent extends Component {
 
   /** 可滚动的最大偏移（内容比可视区多出来的部分） */
   private get _maxOffset(): number {
-    const ui = this.node.getComponent(UITransform);
+    const ui = this._ui;
     if (!ui) return 0;
     if (this.direction === 'horizontal') {
       return Math.max(0, this.contentWidth - ui.width);
@@ -91,18 +103,20 @@ export class DragScrollComponent extends Component {
     if (!c?.isValid) return;
     const clamped = Math.min(Math.max(this._offset, 0), this._maxOffset);
     this._offset = clamped;
-    const ui = this.node.getComponent(UITransform);
+    const ui = this._ui;
     if (this.direction === 'horizontal') {
       // 横向：初始时 content 左边对齐 view 左边；offset 增大时 content 左移，露出右边内容
       const viewW = ui?.width ?? 0;
       const initialX = Math.max(0, (this.contentWidth - viewW) / 2);
-      c.setPosition(new Vec3(initialX - clamped, c.position.y, 0));
+      this._posVec.set(initialX - clamped, c.position.y, 0);
+      c.setPosition(this._posVec);
     } else {
       // 竖向：初始时 content 顶部对齐 view 顶部；offset 增大时 content 下移，露出上方内容
       // （手指上滑 → offset 减小 → content 上移 → 露出下方内容，符合直觉）
       const viewH = ui?.height ?? 0;
       const initialY = -Math.max(0, (this.contentHeight - viewH) / 2);
-      c.setPosition(new Vec3(c.position.x, initialY + clamped, 0));
+      this._posVec.set(c.position.x, initialY + clamped, 0);
+      c.setPosition(this._posVec);
     }
   }
 

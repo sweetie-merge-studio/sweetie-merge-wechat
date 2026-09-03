@@ -1,6 +1,6 @@
-import { _decorator, Color, Component, EventTouch, Graphics, Input, Node, Prefab, Sprite, Tween, UIOpacity, input, instantiate, tween, UITransform, Vec3, view } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Input, Node, Prefab, Tween, UIOpacity, input, instantiate, tween, UITransform, Vec3, view } from 'cc';
 
-import type { Cell, Rarity } from '../core/types';
+import type { Cell, ItemId, Rarity } from '../core/types';
 import { BOARD_COLS, BOARD_ROWS, BOARD_LENGTH } from '../core/board';
 import { isMother, getItemById, getDisplayName, getMergeResult } from '../data/items';
 import { GameManager } from '../manager/GameManager';
@@ -62,7 +62,8 @@ export class BoardComponent extends Component {
   /** 背包图标是否处于拖拽悬停态（用于缩放反馈） */
   private _backpackHovered = false;
   /** 最后一次 TOUCH_MOVE 的 UI 坐标——touchend 坐标在小游戏平台可能异常，用此兜底 */
-  private _lastMoveUIPos: { x: number; y: number } | null = null;
+  private _lastMoveUIPos = { x: 0, y: 0 };
+  private _hasLastMovePos = false;
 
   /** 拖拽目标格高亮节点（常驻，随手指移动显隐） */
   private _highlightNode: Node | null = null;
@@ -70,6 +71,8 @@ export class BoardComponent extends Component {
   /** 格子高度随可视高度自适应（onLoad 时计算） */
   private _cellH = 68;
   private _itemScale = (68 - 8) / ITEM_BASE_SIZE;
+  /** 缓存的 UITransform 引用，避免触摸热路径反复 getComponent */
+  private _uiTransform: UITransform | null = null;
 
   // --- 特效系统成员 ---
   /** 合成动画播放中标志：防止动画期间重复触发合成 */
@@ -78,6 +81,8 @@ export class BoardComponent extends Component {
   private _mergeGlowNode: Node | null = null;
   /** 当前高亮的可合成目标格子下标 */
   private _mergeGlowIdx = -1;
+  /** 可合成目标抖动定时器（与 _mergeGlowNode 生命周期绑定） */
+  private _mergeGlowShakeInterval: ReturnType<typeof setInterval> | null = null;
   /** 背景漂浮粒子清理函数 */
   private _cleanupParticles: (() => void) | null = null;
   /** 传说/神话合成全屏闪光节点（懒建，挂在 canvas 下） */
@@ -94,6 +99,7 @@ export class BoardComponent extends Component {
   };
 
   protected onLoad(): void {
+    this._uiTransform = this.node.getComponent(UITransform);
     this._resize();
     this._buildGrid();
   }
@@ -214,11 +220,13 @@ export class BoardComponent extends Component {
 
   // --- 触摸输入：点击母体产出物品 / 拖拽物品合成 ---
 
-  /** 触点（UI 世界坐标）→ 棋盘本地坐标 */
+  /** 触点（UI 世界坐标）→ 棋盘本地坐标（复用 Vec3 避免高频分配） */
+  private _touchWorldVec = new Vec3();
   private _touchToLocal(event: EventTouch): Vec3 {
-    const ui = this.node.getComponent(UITransform)!;
+    const ui = this._uiTransform ?? this.node.getComponent(UITransform)!;
     const pos = event.getUILocation();
-    return ui.convertToNodeSpaceAR(new Vec3(pos.x, pos.y, 0));
+    this._touchWorldVec.set(pos.x, pos.y, 0);
+    return ui.convertToNodeSpaceAR(this._touchWorldVec);
   }
 
   /** 棋盘本地坐标 → 格子下标（不在棋盘内返回 -1） */
@@ -249,7 +257,7 @@ export class BoardComponent extends Component {
     this._dragFromIdx = idx;
     this._dragItemNode = this._cellNodes[idx]?.children[0] ?? null;
     this._dragOriginalCell = this._cellNodes[idx] ?? null;
-    this._lastMoveUIPos = null;
+    this._hasLastMovePos = false;
     if (this._dragItemNode) {
       Tween.stopAllByTarget(this._dragItemNode);
       // 提到顶层容器：确保拖拽物品渲染在背包ICON等所有UI之上
@@ -268,7 +276,9 @@ export class BoardComponent extends Component {
     if (this._dragFromIdx < 0 || !this._dragItemNode?.isValid) return;
     const uiPos = event.getUILocation();
     // 记录最后一次有效移动坐标，供 touchend 兜底（小游戏平台 touchend 坐标可能异常）
-    this._lastMoveUIPos = { x: uiPos.x, y: uiPos.y };
+    this._lastMoveUIPos.x = uiPos.x;
+    this._lastMoveUIPos.y = uiPos.y;
+    this._hasLastMovePos = true;
     // 物品已 reparent 到顶层容器，直接用世界坐标跟随手指
     this._dragItemNode.setWorldPosition(uiPos.x, uiPos.y, 0);
     const local = this._touchToLocal(event);
@@ -295,7 +305,7 @@ export class BoardComponent extends Component {
     // 失败时用最后一次 TOUCH_MOVE 的有效坐标兜底（move 阶段悬停反馈已证明该坐标命中正常）。
     let overBackpack = this._isTouchOverBackpack(event);
     let fallbackHit = false;
-    if (!overBackpack && this._lastMoveUIPos) {
+    if (!overBackpack && this._hasLastMovePos) {
       fallbackHit = this._isPointOverBackpack(this._lastMoveUIPos.x, this._lastMoveUIPos.y);
       overBackpack = fallbackHit;
     }
@@ -308,7 +318,7 @@ export class BoardComponent extends Component {
         `fromIdx=${fromIdx}`,
         `endUI=(${endUI.x.toFixed(0)},${endUI.y.toFixed(0)})`,
         `endW=(${endW.x.toFixed(0)},${endW.y.toFixed(0)})`,
-        `lastMove=${this._lastMoveUIPos ? `(${this._lastMoveUIPos.x.toFixed(0)},${this._lastMoveUIPos.y.toFixed(0)})` : 'null'}`,
+        `lastMove=${this._hasLastMovePos ? `(${this._lastMoveUIPos.x.toFixed(0)},${this._lastMoveUIPos.y.toFixed(0)})` : 'null'}`,
         `eventHit=${!fallbackHit && overBackpack} fallbackHit=${fallbackHit} overBackpack=${overBackpack}`,
       );
     }
@@ -321,7 +331,7 @@ export class BoardComponent extends Component {
     }
     this._dragItemNode = null;
     this._dragOriginalCell = null;
-    this._lastMoveUIPos = null;
+    this._hasLastMovePos = false;
 
     // 清除背包图标悬停态
     this._updateBackpackHover(null);
@@ -502,7 +512,7 @@ export class BoardComponent extends Component {
     this._popItem(idx, 0.5);
     if (itemId) {
       this._spawnMergeSparkles(idx, itemId);
-      const def = getItemById().get(itemId as any);
+      const def = getItemById().get(itemId as ItemId);
       const rarity: Rarity = def?.rarity ?? 'common';
 
       // 振动反馈：传说/神话级用长振动，其余用短振动
@@ -603,7 +613,7 @@ export class BoardComponent extends Component {
   private _spawnMergeSparkles(idx: number, itemId: string): void {
     const cellNode = this._cellNodes[idx];
     if (!cellNode) return;
-    const def = getItemById().get(itemId as any);
+    const def = getItemById().get(itemId as ItemId);
     const rarity: Rarity = def?.rarity ?? 'common';
     const cfg = BoardComponent.SPARKLE_CONFIG[rarity] ?? BoardComponent.SPARKLE_CONFIG.common;
 
@@ -953,7 +963,7 @@ export class BoardComponent extends Component {
         targetItem.setPosition(baseX + dir * 2, targetItem.position.y, targetItem.position.z);
       }, 80);
       // 保存 interval ID 以便清理
-      (glow as any)._shakeInterval = shakeInterval;
+      this._mergeGlowShakeInterval = shakeInterval;
     }
 
     this._mergeGlowNode = glow;
@@ -962,8 +972,10 @@ export class BoardComponent extends Component {
   /** 清理可合成目标发光 */
   private _clearMergeGlow(): void {
     if (this._mergeGlowNode?.isValid) {
-      const interval = (this._mergeGlowNode as any)._shakeInterval;
-      if (interval) clearInterval(interval);
+      if (this._mergeGlowShakeInterval) {
+        clearInterval(this._mergeGlowShakeInterval);
+        this._mergeGlowShakeInterval = null;
+      }
       Tween.stopAllByTarget(this._mergeGlowNode);
       this._mergeGlowNode.destroy();
     }
@@ -996,8 +1008,9 @@ export class BoardComponent extends Component {
    * 与节点 worldPosition 可能坐标系不一致，单种方式会漏判，必须多方式兜底。
    */
   private _pointInNodeRect(px: number, py: number, node: Node, ui: UITransform): boolean {
-    // 方式 A：convertToNodeSpaceAR（锚点感知的本地坐标）
-    const local = ui.convertToNodeSpaceAR(new Vec3(px, py, 0));
+    // 方式 A：convertToNodeSpaceAR（锚点感知的本地坐标），复用 _touchWorldVec 避免分配
+    this._touchWorldVec.set(px, py, 0);
+    const local = ui.convertToNodeSpaceAR(this._touchWorldVec);
     const hitA = local.x >= -ui.anchorX * ui.width
       && local.x <= (1 - ui.anchorX) * ui.width
       && local.y >= -ui.anchorY * ui.height

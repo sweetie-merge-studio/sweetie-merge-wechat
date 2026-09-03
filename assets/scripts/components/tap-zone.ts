@@ -5,6 +5,12 @@ const { ccclass } = _decorator;
 /** 全局诊断开关：默认关闭，排障时可临时开启打印所有 TapZone 的生命周期与命中结果 */
 const TAP_DIAG = false;
 
+/** _hit 方法复用的临时向量（_hit 同步执行不重入，模块级 scratch 安全） */
+const _scratchVec3a = new Vec3();
+const _scratchVec3b = new Vec3();
+const _scratchVec2a = new Vec2();
+const _scratchVec2b = new Vec2();
+
 /**
  * 当前置顶的模态根节点。非空时只有它子树内的点击区响应。
  *
@@ -44,6 +50,12 @@ export class TapZoneComponent extends Component {
   debugName = '';
 
   private _startedInside = false;
+  /** 缓存的 UITransform 引用，避免 _hit 热路径反复 getComponent */
+  private _ui: UITransform | null = null;
+
+  protected onLoad(): void {
+    this._ui = this.node.getComponent(UITransform);
+  }
 
   /** 有模态层时，只有模态子树内的点击区参与命中 */
   private _blockedByModal(): boolean {
@@ -98,7 +110,7 @@ export class TapZoneComponent extends Component {
   private _hit(event: EventTouch): boolean {
     if (!this.node.activeInHierarchy) return false;
     if (this._blockedByModal()) return false;
-    const ui = this.node.getComponent(UITransform);
+    const ui = this._ui ?? this.node.getComponent(UITransform);
     if (!ui) return false;
 
     // 同时取 UI 坐标与世界坐标：web 平台下深层节点（弹窗→滚动区→卡片）
@@ -113,9 +125,11 @@ export class TapZoneComponent extends Component {
       local.y <= (1 - ui.anchorY) * ui.height
     );
 
-    // 方式 A：convertToNodeSpaceAR（两种坐标都试）
-    const localUI = ui.convertToNodeSpaceAR(new Vec3(posUI.x, posUI.y, 0));
-    const localW = ui.convertToNodeSpaceAR(new Vec3(posW.x, posW.y, 0));
+    // 方式 A：convertToNodeSpaceAR（两种坐标都试），复用 scratch 向量避免分配
+    _scratchVec3a.set(posUI.x, posUI.y, 0);
+    _scratchVec3b.set(posW.x, posW.y, 0);
+    const localUI = ui.convertToNodeSpaceAR(_scratchVec3a);
+    const localW = ui.convertToNodeSpaceAR(_scratchVec3b);
     const hitA = inLocalRect(localUI) || inLocalRect(localW);
 
     // 方式 B：世界坐标矩形（两种坐标都试，不依赖 convertToNodeSpaceAR）
@@ -136,7 +150,9 @@ export class TapZoneComponent extends Component {
     let hitC = false;
     try {
       const worldBox = ui.getBoundingBoxToWorld();
-      hitC = worldBox.contains(new Vec2(posUI.x, posUI.y)) || worldBox.contains(new Vec2(posW.x, posW.y));
+      _scratchVec2a.set(posUI.x, posUI.y);
+      _scratchVec2b.set(posW.x, posW.y);
+      hitC = worldBox.contains(_scratchVec2a) || worldBox.contains(_scratchVec2b);
     } catch (e) {
       // getBoundingBoxToWorld 在极端情况下（节点未激活/无父节点）可能抛错，静默降级
     }
