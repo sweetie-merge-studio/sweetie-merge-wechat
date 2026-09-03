@@ -62,7 +62,17 @@ const TABS: ReadonlyArray<{ key: string; label: string; enLabel: string; page?: 
   },
   {
     key: 'shop', label: '商店', enLabel: 'Shop',
-    page: { bundle: 'store', component: 'StorePageComponent', modal: { width: 660, height: 1000, title: '商店' } },
+    page: {
+      bundle: 'store',
+      component: 'StorePageComponent',
+      modal: {
+        width: 660,
+        height: 1180,
+        title: '甜心商店',
+        iconPath: 'sprites/ui/nav/nav_shop',
+        subtitle: '补充精力，获取稀有道具',
+      },
+    },
   },
 ];
 

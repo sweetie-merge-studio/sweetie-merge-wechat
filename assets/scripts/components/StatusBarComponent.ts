@@ -275,7 +275,13 @@ export class StatusBarComponent extends Component {
             EnergyAdModal.show(canvas);
           }
         } else {
-          openBundleModal(canvas, 'store', 'StorePageComponent', { width: 660, height: 1000, title: '商店' });
+          openBundleModal(canvas, 'store', 'StorePageComponent', {
+            width: 660,
+            height: 1100,
+            title: '甜心商店',
+            iconPath: 'sprites/ui/nav/nav_shop',
+            subtitle: '补充精力，获取稀有道具',
+          });
         }
       };
     }

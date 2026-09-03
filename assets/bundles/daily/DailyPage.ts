@@ -6,40 +6,69 @@ import { TapZoneComponent } from '../../scripts/components/tap-zone';
 import { loadSpriteFrame, applySpriteFrame } from '../../scripts/components/sprite-loader';
 import { UI_COLORS } from '../../scripts/components/ui-factory';
 import { LOGIN_REWARDS, allTasksDone } from '../../scripts/core/daily';
-import type { DailyTask } from '../../scripts/core/daily';
+import type { DailyTask, LoginReward } from '../../scripts/core/daily';
 
 const { ccclass } = _decorator;
 
 /** 内容区宽度（弹窗 body 宽 660 - 左右各 20 边距 = 620，与商店/图鉴一致） */
 const CONTENT_W = 620;
 
-/* ═══ 签到便利贴 ═══ */
-const STICKY_W = 124;
-const STICKY_H = 96;
-const STICKY_GAP = 14;
-/** 图钉直径 */
-const PIN_SIZE = 20;
-/** 便利贴圆角 */
-const STICKY_RADIUS = 10;
+/* ═══ 签到便利贴（抖音小游戏风格：彩色底 + 图钉 + 微旋转，对齐 sweetie-merge-douyin） ═══ */
+const STICKER_W = 120;
+const STICKER_H = 128;
+const STICKER_GAP = 20;
+const STICKER_RADIUS = 4;
+/** 图钉半径 */
+const PIN_R = 7;
 
-/** 便利贴底色（未签到时，按天依次，半透明模拟便签纸感） */
-const STICKY_COLORS: readonly Color[] = [
-  new Color(210, 226, 244, 210), // D1 浅蓝
-  new Color(244, 218, 230, 210), // D2 浅粉
-  new Color(214, 236, 214, 210), // D3 浅绿
-  new Color(238, 232, 214, 210), // D4 米白
-  new Color(226, 218, 242, 210), // D5 浅紫
-  new Color(208, 234, 218, 210), // D6 浅绿
-  new Color(210, 226, 244, 210), // D7 浅蓝
+/** 7天便利贴底色（对齐抖音端配色） */
+const STICKER_COLORS: readonly Color[] = [
+  new Color(255, 248, 220, 255), // 第1天 亮黄
+  new Color(235, 242, 248, 255), // 第2天 淡蓝
+  new Color(248, 235, 238, 255), // 第3天 淡粉
+  new Color(235, 248, 240, 255), // 第4天 淡绿
+  new Color(248, 245, 232, 255), // 第5天 淡黄
+  new Color(240, 235, 248, 255), // 第6天 淡紫
+  new Color(238, 248, 228, 255), // 第7天 淡黄绿
 ];
-/** 已签到底色（绿） */
-const SIGNED_BG = new Color(126, 191, 108, 255);
-/** 今日未签到高亮描边（亮橙） */
-const TODAY_STROKE = new Color(240, 140, 30, 255);
-/** 图钉色 */
-const PIN_COLOR = new Color(200, 162, 100, 255);
-const PIN_HIGHLIGHT = new Color(245, 224, 180, 255);
-const PIN_SHADOW = new Color(140, 100, 60, 100);
+
+/** 7天便利贴天数文字颜色（与底色配套） */
+const STICKER_DAY_COLORS: readonly Color[] = [
+  new Color(139, 95, 20, 255),
+  new Color(140, 162, 185, 255),
+  new Color(185, 140, 150, 255),
+  new Color(140, 175, 145, 255),
+  new Color(175, 165, 130, 255),
+  new Color(155, 145, 180, 255),
+  new Color(155, 175, 130, 255),
+];
+
+/** 7天便利贴奖励文字颜色（比天数更浅） */
+const STICKER_REWARD_COLORS: readonly Color[] = [
+  new Color(139, 95, 20, 200),
+  new Color(150, 172, 195, 200),
+  new Color(195, 150, 160, 200),
+  new Color(150, 185, 155, 200),
+  new Color(185, 175, 140, 200),
+  new Color(165, 155, 190, 200),
+  new Color(165, 185, 140, 200),
+];
+
+/** 便利贴轻微旋转角度（模拟真实便利贴的错落感，顺时针为正） */
+const STICKER_ANGLES: readonly number[] = [-2, 1.5, -1, 2, -1.5, 1, -2.5];
+
+/** 今日签到格高亮描边（金） */
+const TODAY_STROKE = new Color(255, 196, 60, 255);
+/** 已签到绿色覆盖 */
+const SIGNED_OVERLAY = new Color(126, 191, 108, 200);
+/** 图钉颜色（金棕色） */
+const PIN_COLOR = new Color(180, 140, 70, 255);
+/** 图钉阴影 */
+const PIN_SHADOW = new Color(120, 85, 40, 200);
+/** 提示文字金色 */
+const TIP_GOLD = new Color(196, 154, 60, 255);
+/** 药丸标签边框（金色） */
+const PILL_BORDER = new Color(212, 162, 78, 255);
 
 /* ═══ 任务行 ═══ */
 const TASK_H = 80;
@@ -66,9 +95,9 @@ const COIN_SIZE = 20;
 const TASK_BG = new Color(255, 255, 255, 255);
 
 /**
- * 每日小任务弹窗（daily 分包）：便利贴签到 + 进度条任务 + 全勤宝箱。
+ * 每日小任务弹窗（daily 分包）：抖音便利贴风格签到 + 进度条任务 + 全勤宝箱。
  *
- * 以弹窗 body 形式挂载，样式对齐抖音小游戏每日任务弹窗。
+ * 以弹窗 body 形式挂载，签到样式对齐抖音小游戏每日任务弹窗。
  */
 @ccclass('DailyPageComponent')
 export class DailyPageComponent extends Component {
@@ -178,135 +207,174 @@ export class DailyPageComponent extends Component {
     }
   }
 
-  // ── 连续签到（便利贴） ──
+  // ── 连续签到（抖音便利贴风格） ──
 
   private _buildSignIn(parent: Node, top: number): number {
     const gm = GameManager.instance;
     const todayDay = gm.daily.streak === 0 ? 1 : gm.daily.streak;
 
-    // 标题行："连续签到" + "第X天"标签
-    const titleH = 32;
-    this._buildLabel(parent, '连续签到', 23, new Vec3(-CONTENT_W / 2 + 8, top - titleH / 2, 0), {
-      bold: true, anchorLeft: true, width: 160,
+    // 标题行："连续签到" + "第X天"药丸标签
+    const titleY = top - 18;
+    this._buildLabel(parent, '连续签到', 22, new Vec3(-CONTENT_W / 2 + 4, titleY, 0), {
+      bold: true, anchorLeft: true, width: 120,
     });
-    // "第X天"圆角标签
-    const tagW = 80;
-    const tag = new Node('dayTag');
-    tag.layer = parent.layer;
-    tag.addComponent(UITransform).setContentSize(tagW, 30);
-    tag.setPosition(new Vec3(-CONTENT_W / 2 + 8 + 155 + tagW / 2 + 8, top - titleH / 2, 0));
-    parent.addChild(tag);
-    const tg = tag.addComponent(Graphics);
-    tg.fillColor = new Color(255, 248, 238, 255);
-    tg.roundRect(-tagW / 2, -15, tagW, 30, 15);
-    tg.fill();
-    tg.lineWidth = 2;
-    tg.strokeColor = new Color(212, 184, 150, 255);
-    tg.roundRect(-tagW / 2, -15, tagW, 30, 15);
-    tg.stroke();
-    this._buildLabel(tag, `第 ${todayDay} 天`, 17, new Vec3(0, 0, 0), {
-      bold: true, color: new Color(139, 99, 64, 255), width: tagW - 8,
-    });
-    let y = top - titleH;
+    const pillText = `第 ${todayDay} 天`;
+    const pillW = pillText.length * 16 + 28;
+    this._buildDayPill(parent, pillText, -CONTENT_W / 2 + 4 + 100 + pillW / 2, titleY, pillW);
 
-    // 提示文字
-    y -= 22;
-    this._buildLabel(parent, '点今天的便利贴签到呀', 17, new Vec3(0, y, 0), {
-      color: new Color(212, 148, 26, 255), width: 300,
-    });
-    y -= 10;
-
-    // 便利贴：第一行 4 个，第二行 3 个居中
-    const row1Y = y - STICKY_H / 2;
-    const row2Y = row1Y - STICKY_H - STICKY_GAP;
-    const row1StartX = -CONTENT_W / 2 + STICKY_W / 2;
-    const row2TotalW = 3 * STICKY_W + 2 * STICKY_GAP;
-    const row2StartX = -row2TotalW / 2 + STICKY_W / 2;
-
-    LOGIN_REWARDS.forEach((reward, i) => {
-      const isRow1 = i < 4;
-      const col = isRow1 ? i : i - 4;
-      const startX = isRow1 ? row1StartX : row2StartX;
-      const posY = isRow1 ? row1Y : row2Y;
-      const posX = startX + col * (STICKY_W + STICKY_GAP);
-
-      this._buildSticky(parent, new Vec3(posX, posY, 0), reward, todayDay, gm.daily.signedIn);
+    // 提示文字（金色，对齐抖音端）
+    const tipY = top - 50;
+    this._buildLabel(parent, '点今天的便利贴签到呀', 18, new Vec3(0, tipY, 0), {
+      color: TIP_GOLD, width: CONTENT_W,
     });
 
-    return row2Y - STICKY_H / 2;
+    // 7天便利贴网格：第一行4个，第二行3个居中
+    const row1Y = tipY - 28 - STICKER_H / 2;
+    const row2Y = row1Y - STICKER_H - STICKER_GAP;
+
+    const row1Count = 4;
+    const row1TotalW = row1Count * STICKER_W + (row1Count - 1) * STICKER_GAP;
+    const row1StartX = -row1TotalW / 2 + STICKER_W / 2;
+    for (let i = 0; i < row1Count; i++) {
+      this._buildSticker(parent, row1StartX + i * (STICKER_W + STICKER_GAP), row1Y, i, todayDay, gm);
+    }
+
+    const row2Count = 3;
+    const row2TotalW = row2Count * STICKER_W + (row2Count - 1) * STICKER_GAP;
+    const row2StartX = -row2TotalW / 2 + STICKER_W / 2;
+    for (let i = 0; i < row2Count; i++) {
+      const dayIdx = row1Count + i;
+      this._buildSticker(parent, row2StartX + i * (STICKER_W + STICKER_GAP), row2Y, dayIdx, todayDay, gm);
+    }
+
+    return row2Y - STICKER_H / 2;
   }
 
-  /** 构建一个便利贴 */
-  private _buildSticky(
-    parent: Node,
-    pos: Vec3,
-    reward: { day: number; label: string },
-    todayDay: number,
-    signedIn: boolean,
-  ): void {
-    const cell = new Node(`sticky_${reward.day}`);
-    cell.layer = parent.layer;
-    cell.addComponent(UITransform).setContentSize(STICKY_W, STICKY_H);
-    cell.setPosition(pos);
-    // 便利贴轻微旋转，模拟真实便签感
-    const rotations = [-1.5, 1, -1, 1.5, 1, -1.2, 0.8];
-    cell.angle = rotations[(reward.day - 1) % rotations.length];
-    parent.addChild(cell);
+  /** 构建"第N天"药丸标签（奶油底 + 金色边框 + 棕色文字） */
+  private _buildDayPill(parent: Node, text: string, x: number, y: number, width: number): void {
+    const pill = new Node('dayPill');
+    pill.layer = parent.layer;
+    pill.addComponent(UITransform).setContentSize(width, 30);
+    pill.setPosition(new Vec3(x, y, 0));
+    parent.addChild(pill);
 
-    const isToday = reward.day === todayDay;
-    const isPast = reward.day < todayDay;
-    const signed = isPast || (isToday && signedIn);
-    const isTodayUnsigned = isToday && !signedIn;
-
-    const g = cell.addComponent(Graphics);
-    // 底色
-    g.fillColor = signed ? SIGNED_BG : STICKY_COLORS[(reward.day - 1) % STICKY_COLORS.length];
-    g.roundRect(-STICKY_W / 2, -STICKY_H / 2, STICKY_W, STICKY_H, STICKY_RADIUS);
+    const g = pill.addComponent(Graphics);
+    g.fillColor = new Color(255, 248, 238, 255);
+    g.roundRect(-width / 2, -15, width, 30, 15);
     g.fill();
-    // 今日未签到：橙色描边高亮
-    if (isTodayUnsigned) {
+    g.lineWidth = 2;
+    g.strokeColor = PILL_BORDER;
+    g.roundRect(-width / 2, -15, width, 30, 15);
+    g.stroke();
+
+    this._buildLabel(pill, text, 17, new Vec3(0, 0, 0), {
+      bold: true, color: UI_COLORS.textBrown, width: width - 12,
+    });
+  }
+
+  /** 构建一个便利贴签到格（带图钉、微旋转、多色底、分色文字、奖励图标） */
+  private _buildSticker(
+    parent: Node,
+    x: number,
+    y: number,
+    idx: number,
+    todayDay: number,
+    gm: GameManager,
+  ): void {
+    const reward = LOGIN_REWARDS[idx];
+    const day = reward.day;
+    const isToday = day === todayDay;
+    const signed = day < todayDay || (isToday && gm.daily.signedIn);
+    const canSign = isToday && !gm.daily.signedIn;
+
+    const sticker = new Node(`sticker_${day}`);
+    sticker.layer = parent.layer;
+    sticker.addComponent(UITransform).setContentSize(STICKER_W, STICKER_H);
+    sticker.setPosition(new Vec3(x, y, 0));
+    sticker.angle = STICKER_ANGLES[idx % STICKER_ANGLES.length];
+    parent.addChild(sticker);
+
+    const g = sticker.addComponent(Graphics);
+
+    // 彩色底色
+    g.fillColor = STICKER_COLORS[idx % STICKER_COLORS.length];
+    g.roundRect(-STICKER_W / 2, -STICKER_H / 2, STICKER_W, STICKER_H, STICKER_RADIUS);
+    g.fill();
+
+    // 今日可签：金色高亮描边
+    if (canSign) {
       g.lineWidth = 3;
       g.strokeColor = TODAY_STROKE;
-      g.roundRect(-STICKY_W / 2, -STICKY_H / 2, STICKY_W, STICKY_H, STICKY_RADIUS);
+      g.roundRect(-STICKER_W / 2, -STICKER_H / 2, STICKER_W, STICKER_H, STICKER_RADIUS);
       g.stroke();
     }
 
-    // 图钉（顶部中央，在便利贴内部）
-    const pinY = STICKY_H / 2 - 6;
-    g.fillColor = PIN_COLOR;
-    g.circle(0, pinY, PIN_SIZE / 2);
+    // 已签到：绿色半透明覆盖
+    if (signed) {
+      g.fillColor = SIGNED_OVERLAY;
+      g.roundRect(-STICKER_W / 2, -STICKER_H / 2, STICKER_W, STICKER_H, STICKER_RADIUS);
+      g.fill();
+    }
+
+    // 图钉（金棕色 + 阴影 + 高光）
+    const pinY = STICKER_H / 2 - 10;
+    g.fillColor = PIN_SHADOW;
+    g.circle(1, pinY - 1.5, PIN_R);
     g.fill();
-    g.fillColor = PIN_HIGHLIGHT;
-    g.circle(-2, pinY + 2, PIN_SIZE / 4);
+    g.fillColor = PIN_COLOR;
+    g.circle(0, pinY, PIN_R);
+    g.fill();
+    g.fillColor = new Color(255, 230, 180, 180);
+    g.circle(-2, pinY + 1.5, PIN_R * 0.4);
     g.fill();
 
+    // 第X天
+    this._buildLabel(sticker, `第${day}天`, 18, new Vec3(0, STICKER_H / 2 - 32, 0), {
+      bold: true,
+      color: signed ? new Color(255, 255, 255, 255) : STICKER_DAY_COLORS[idx % STICKER_DAY_COLORS.length],
+      width: STICKER_W - 10,
+    });
+
     if (signed) {
-      // 已签到：白色对勾
-      this._buildLabel(cell, '✓', 40, new Vec3(0, -2, 0), {
-        bold: true, color: new Color(255, 255, 255, 255), width: 56,
-      });
-      this._buildLabel(cell, `第${reward.day}天`, 15, new Vec3(0, -STICKY_H / 2 + 16, 0), {
-        color: new Color(255, 255, 255, 220), width: STICKY_W - 10,
+      // 已签到：白色大对勾
+      this._buildLabel(sticker, '✓', 36, new Vec3(0, -4, 0), {
+        bold: true,
+        color: new Color(255, 255, 255, 255),
       });
     } else {
-      // 未签到：第X天 + 奖励
-      this._buildLabel(cell, `第${reward.day}天`, 19, new Vec3(0, STICKY_H / 2 - 28, 0), {
-        bold: true,
-        color: isTodayUnsigned ? new Color(224, 108, 18, 255) : new Color(111, 74, 57, 200),
-        width: STICKY_W - 10,
+      // 未签到：奖励图标 + 奖励文字
+      const iconPath = this._rewardIconPath(reward);
+      const iconNode = new Node('rewardIcon');
+      iconNode.layer = sticker.layer;
+      iconNode.addComponent(UITransform).setContentSize(32, 32);
+      iconNode.setPosition(new Vec3(0, 2, 0));
+      sticker.addChild(iconNode);
+      const sprite = iconNode.addComponent(Sprite);
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      loadSpriteFrame(iconPath, sf => {
+        if (sf && sprite.isValid) applySpriteFrame(sprite, sf);
       });
-      this._buildLabel(cell, reward.label, 14, new Vec3(0, -8, 0), {
-        color: new Color(111, 74, 57, 180), width: STICKY_W - 12,
+
+      this._buildLabel(sticker, reward.label, 12, new Vec3(0, -26, 0), {
+        color: STICKER_REWARD_COLORS[idx % STICKER_REWARD_COLORS.length],
+        width: STICKER_W - 12,
       });
     }
 
-    // 今日未签到可点击签到
-    if (isTodayUnsigned) {
-      cell.addComponent(TapZoneComponent).onTap = () => {
-        const r = GameManager.instance.signInDaily();
+    // 今日未签到：点击整个便利贴签到
+    if (canSign) {
+      sticker.addComponent(TapZoneComponent).onTap = () => {
+        const r = gm.signInDaily();
         if (r) showPageToast(this.node, `签到成功，获得 ${r.label}`);
       };
     }
+  }
+
+  /** 根据奖励类型返回图标路径 */
+  private _rewardIconPath(reward: LoginReward): string {
+    if (reward.unlockItem) return 'sprites/items/cake/cake_4';
+    if (reward.energy) return 'sprites/ui/energy_bolt';
+    return 'sprites/currency/coin';
   }
 
   // ── 每日小任务 ──

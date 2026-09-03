@@ -33,6 +33,8 @@ const CONTENT_W = 620;
 const GRID_COLS = 4;
 const CARD_PAD = 16;
 const CELL_GAP = 10;
+/** 卡片之间的垂直间距（大于格子间距，让大卡片之间有呼吸感） */
+const CARD_GAP = 14;
 const CELL_W = (CONTENT_W - CARD_PAD * 2 - CELL_GAP * (GRID_COLS - 1)) / GRID_COLS;
 const CELL_H = 150;
 const MOTHER_H = 64;
@@ -42,8 +44,8 @@ const CATEGORY_CARD_H = CARD_PAD * 2 + CELL_H * 2 + CELL_GAP + MOTHER_H + 8;
 /** 经济卡：合成链一行 4 级 */
 const CHAIN_CARD_H = 240;
 
-/** 一屏内容的可视高度上限，超出部分靠滚动 */
-const VIEW_TOP = 86;
+/** 滚动区顶部距页面顶部（tabRow 占 8+68=76，下方留 20px 呼吸间距 → 96） */
+const VIEW_TOP = 96;
 /** 底部安全边距 */
 const BOTTOM_SAFE = 20;
 
@@ -128,6 +130,10 @@ export class CollectionPageComponent extends Component {
 
   /**
    * 把所有卡片按顺序塞进滚动内容区，从上到下排列。
+   *
+   * 注意：必须先 setContentHeight 再布局子节点。Cocos 节点 position 相对于锚点（中心），
+   * 若先按 viewH 布局再改 content 高度，content 变高后子节点相对顶部会下移
+   * (finalH - viewH)/2，导致超一屏的内容全部跑到可视区外。
    */
   private _layoutScroll(cards: { h: number; build: (parent: Node, y: number) => void }[]): void {
     const scroll = this._scroll;
@@ -141,23 +147,23 @@ export class CollectionPageComponent extends Component {
     }
 
     const viewH = scroll.view.getComponent(UITransform)!.height;
-    let y = viewH / 2;
+    // 先算总高并设置 content 高度，布局时 y 从 finalH/2（content 顶部）开始
     let usedH = 0;
+    for (let i = 0; i < cards.length; i++) {
+      usedH += cards[i].h;
+      if (i < cards.length - 1) usedH += CARD_GAP;
+    }
+    const finalH = Math.max(usedH, viewH);
+    scroll.setContentHeight(finalH);
 
+    let y = finalH / 2;
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
       y -= card.h / 2;
       card.build(content, y);
       y -= card.h / 2;
-      usedH += card.h;
-      if (i < cards.length - 1) {
-        y -= CELL_GAP;
-        usedH += CELL_GAP;
-      }
+      if (i < cards.length - 1) y -= CARD_GAP;
     }
-
-    const finalH = Math.max(usedH, viewH);
-    scroll.setContentHeight(finalH);
   }
 
   /** 向上找到弹窗根节点（用于 showPageToast / showItemDetail，避免被面板裁剪） */

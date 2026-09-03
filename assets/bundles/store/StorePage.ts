@@ -34,10 +34,11 @@ const ENERGY_WIDE_H = 156;
  * 经像素分析各图非透明内容区域，按内容高度 ≈68px 反推显示尺寸。
  */
 const ENERGY_ICON_SIZES: Record<string, { w: number; h: number }> = {
-  'play': { w: 51, h: 68 },
+  'sprites/ui/play_button': { w: 66, h: 68 },
   'sprites/ui/energy_bolt': { w: 87, h: 87 },
+  'sprites/ui/energy_coin': { w: 67, h: 68 },
+  'sprites/ui/energy_potion': { w: 51, h: 68 },
   'sprites/currency/coin': { w: 90, h: 90 },
-  'potion': { w: 51, h: 68 },
 };
 
 /* 钻石卡片：3 列 */
@@ -1037,118 +1038,51 @@ export class StorePageComponent extends Component {
     }
   }
 
-  /** 皇冠钻石（15 钻石 VIP 档）：代码绘制皇冠 + 钻石 */
+  /** 皇冠钻石（15 钻石 VIP 档）：带皇冠的砖石图片 */
   private _drawCrownDiamondIcon(node: Node): void {
-    // 钻石主体
-    const g = node.addComponent(Graphics);
-    g.fillColor = new Color(100, 180, 255, 255);
-    g.moveTo(0, -20);
-    g.lineTo(24, 0);
-    g.lineTo(0, 28);
-    g.lineTo(-24, 0);
-    g.close();
-    g.fill();
-    g.fillColor = new Color(150, 210, 255, 255);
-    g.moveTo(0, -20);
-    g.lineTo(12, -4);
-    g.lineTo(-12, -4);
-    g.close();
-    g.fill();
-    g.strokeColor = new Color(60, 120, 200, 255);
-    g.lineWidth = 2;
-    g.moveTo(0, -20);
-    g.lineTo(24, 0);
-    g.lineTo(0, 28);
-    g.lineTo(-24, 0);
-    g.close();
-    g.stroke();
-
-    // 皇冠（顶部）
-    g.fillColor = new Color(255, 200, 60, 255);
-    g.moveTo(-18, -22);
-    g.lineTo(-12, -36);
-    g.lineTo(-6, -26);
-    g.lineTo(0, -40);
-    g.lineTo(6, -26);
-    g.lineTo(12, -36);
-    g.lineTo(18, -22);
-    g.close();
-    g.fill();
-    g.strokeColor = new Color(200, 140, 30, 255);
-    g.lineWidth = 1.5;
-    g.moveTo(-18, -22);
-    g.lineTo(-12, -36);
-    g.lineTo(-6, -26);
-    g.lineTo(0, -40);
-    g.lineTo(6, -26);
-    g.lineTo(12, -36);
-    g.lineTo(18, -22);
-    g.close();
-    g.stroke();
+    const diamondNode = new Node('crownDiamond');
+    diamondNode.layer = node.layer;
+    diamondNode.addComponent(UITransform).setContentSize(64, 64);
+    diamondNode.setPosition(new Vec3(0, 0, 0));
+    node.addChild(diamondNode);
+    const sprite = diamondNode.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    loadSpriteFrame('sprites/currency/levels/diamond_crown', sf => {
+      if (sf && sprite.isValid) sprite.spriteFrame = sf;
+    });
   }
 
-  /** 钻石堆（50/80 钻石档）：代码绘制多颗钻石 */
+  /** 钻石堆（50/80 钻石档）：使用等级砖石图片 */
   private _drawDiamondPileIcon(node: Node, count: number): void {
-    const g = node.addComponent(Graphics);
-    const positions = count === 3
-      ? [[-14, 8], [14, 8], [0, -10]]
-      : [[-18, 10], [18, 10], [-8, -4], [8, -4], [0, -18]];
-    const sz = count === 3 ? 16 : 13;
+    const spritePath = count === 3
+      ? 'sprites/currency/levels/diamond_lv3'
+      : 'sprites/currency/levels/diamond_lv4';
+    const size = count === 3 ? 56 : 64;
 
-    for (const [px, py] of positions) {
-      g.fillColor = new Color(100, 180, 255, 255);
-      g.moveTo(px, py - sz * 0.7);
-      g.lineTo(px + sz, py);
-      g.lineTo(px, py + sz);
-      g.lineTo(px - sz, py);
-      g.close();
-      g.fill();
-      g.fillColor = new Color(160, 215, 255, 255);
-      g.moveTo(px, py - sz * 0.7);
-      g.lineTo(px + sz * 0.5, py - sz * 0.15);
-      g.lineTo(px - sz * 0.5, py - sz * 0.15);
-      g.close();
-      g.fill();
-      g.strokeColor = new Color(60, 120, 200, 255);
-      g.lineWidth = 1.5;
-      g.moveTo(px, py - sz * 0.7);
-      g.lineTo(px + sz, py);
-      g.lineTo(px, py + sz);
-      g.lineTo(px - sz, py);
-      g.close();
-      g.stroke();
-    }
+    const d = new Node('diamondPile');
+    d.layer = node.layer;
+    d.addComponent(UITransform).setContentSize(size, size);
+    d.setPosition(new Vec3(0, 0, 0));
+    node.addChild(d);
+    const sprite = d.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    loadSpriteFrame(spritePath, sf => {
+      if (sf && sprite.isValid) sprite.spriteFrame = sf;
+    });
   }
 
-  /** 宝箱（120 钻石档）：代码绘制宝箱 */
+  /** 宝箱（120 钻石档）：砖石宝箱图片 */
   private _drawChestIcon(node: Node): void {
-    const g = node.addComponent(Graphics);
-    // 箱体
-    g.fillColor = new Color(180, 120, 60, 255);
-    g.roundRect(-24, -18, 48, 30, 4);
-    g.fill();
-    // 箱盖
-    g.fillColor = new Color(200, 140, 70, 255);
-    g.roundRect(-24, 6, 48, 16, 6);
-    g.fill();
-    // 金属条
-    g.fillColor = new Color(255, 200, 60, 255);
-    g.rect(-24, -2, 48, 5);
-    g.fill();
-    // 锁
-    g.fillColor = new Color(255, 210, 80, 255);
-    g.roundRect(-6, -6, 12, 14, 2);
-    g.fill();
-    g.fillColor = new Color(180, 130, 30, 255);
-    g.circle(0, 0, 2.5);
-    g.fill();
-    // 边框
-    g.strokeColor = new Color(140, 80, 30, 255);
-    g.lineWidth = 2;
-    g.roundRect(-24, -18, 48, 30, 4);
-    g.stroke();
-    g.roundRect(-24, 6, 48, 16, 6);
-    g.stroke();
+    const chestNode = new Node('diamondChest');
+    chestNode.layer = node.layer;
+    chestNode.addComponent(UITransform).setContentSize(64, 64);
+    chestNode.setPosition(new Vec3(0, 0, 0));
+    node.addChild(chestNode);
+    const sprite = chestNode.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    loadSpriteFrame('sprites/currency/levels/diamond_chest', sf => {
+      if (sf && sprite.isValid) sprite.spriteFrame = sf;
+    });
   }
 
   /* ═══════════════════════════════════════
@@ -1158,13 +1092,13 @@ export class StorePageComponent extends Component {
   private _energyOptions(): EnergyOption[] {
     const cfg = getConfig();
     const opts: EnergyOption[] = [
-      { id: 'en1', label: '看广告', amount: cfg.energy.adReward, type: 'ad', icon: 'play' },
+      { id: 'en1', label: '看广告', amount: cfg.energy.adReward, type: 'ad', icon: 'sprites/ui/play_button' },
     ];
     if (cfg.features.diamondSpend) {
       opts.push(
         { id: 'en2', label: '精力药水', amount: 20, type: 'diamond', diamondCost: 3, icon: 'sprites/ui/energy_bolt' },
-        { id: 'en3', label: '精力药水', amount: 40, type: 'diamond', diamondCost: 5, icon: 'sprites/currency/coin' },
-        { id: 'en4', label: '精力药水', amount: 60, type: 'diamond', diamondCost: 8, icon: 'potion' },
+        { id: 'en3', label: '精力药水', amount: 40, type: 'diamond', diamondCost: 5, icon: 'sprites/ui/energy_coin' },
+        { id: 'en4', label: '精力药水', amount: 60, type: 'diamond', diamondCost: 8, icon: 'sprites/ui/energy_potion' },
       );
     }
     opts.push({

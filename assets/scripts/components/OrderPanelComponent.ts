@@ -13,6 +13,8 @@ import { spawnFlyingCoins } from './coin-fly';
 import { BoardComponent } from './BoardComponent';
 import { fontManager } from '../core/font-manager';
 import { showSynthesisPathModal } from './SynthesisPathModal';
+import { pickCustomerDialogue, pickHumorReply } from '../core/customer-dialogues';
+import { showCustomerSpeechBubble } from './customer-speech-bubble';
 
 const { ccclass, property } = _decorator;
 
@@ -266,7 +268,30 @@ export class OrderPanelComponent extends Component {
     );
   }
 
+  /** 触点是否落在左右箭头按钮上（命中时跳过卡片拖拽/点击，避免箭头点击触发卡片事件） */
+  private _isArrowHit(event: EventTouch): boolean {
+    const left = this._arrowLeft;
+    const right = this._arrowRight;
+    if ((!left?.activeInHierarchy && !right?.activeInHierarchy)) return false;
+    const nodeUi = this.node.getComponent(UITransform);
+    if (!nodeUi) return false;
+    const p = event.getUILocation();
+    const local = nodeUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+    const half = ARROW_SIZE / 2;
+    if (left?.activeInHierarchy) {
+      const lx = -VIEW_W / 2 + ARROW_SIZE / 2 - 2;
+      if (Math.abs(local.x - lx) <= half && Math.abs(local.y) <= half) return true;
+    }
+    if (right?.activeInHierarchy) {
+      const rx = VIEW_W / 2 - ARROW_SIZE / 2 + 2;
+      if (Math.abs(local.x - rx) <= half && Math.abs(local.y) <= half) return true;
+    }
+    return false;
+  }
+
   private _onTouchStart(event: EventTouch): void {
+    // 点击箭头按钮时不进入卡片拖拽/点击逻辑，由箭头自身的 TapZone 处理滚动
+    if (this._isArrowHit(event)) return;
     if (!this._hitTest(event)) return;
     this._dragging = false;
     this._dragMoved = false;
@@ -303,6 +328,23 @@ export class OrderPanelComponent extends Component {
       if (this._startCardIdx >= 0 && this._startCardIdx === endIdx) {
         const order = this._visibleOrders[this._startCardIdx];
         if (!order) return;
+
+        // 优先级最高：点击顾客头像 → 弹对话气泡（不触发领取/合成路径）
+        if (this._isAvatarHit(event, this._startCardIdx)) {
+          const card = this._content?.children[this._startCardIdx];
+          if (card?.isValid) {
+            const customerText = pickCustomerDialogue(order.avatar, isOrderComplete(order));
+            const replyText = pickHumorReply(customerText);
+            // 取头像节点世界坐标，气泡挂在 Canvas 根节点（最高层级，不被遮挡）
+            const avatarNode = card.getChildByName('avatar');
+            const avatarWorldPos = avatarNode?.isValid
+              ? avatarNode.getWorldPosition()
+              : card.getWorldPosition().add(new Vec3(0, AVATAR_Y, 0));
+            showCustomerSpeechBubble(GameManager.instance.node, avatarWorldPos, AVATAR_SIZE, customerText, replyText);
+          }
+          return;
+        }
+
         if (isOrderComplete(order)) {
           // 已完成订单：先记录匹配物品位置，播放物品飞行动画，再领取奖励
           const card = this._content?.children[this._startCardIdx];
@@ -410,6 +452,25 @@ export class OrderPanelComponent extends Component {
       }
     }
     return -1;
+  }
+
+  /**
+   * 检测触点是否落在顾客头像区域内（基于卡片坐标系）。
+   * 对齐 _buildAvatar 中的布局：AVATAR_SIZE=77, AVATAR_Y=37，头像中心在 (0, 37)。
+   * 留 4px 容差，避免手指较粗点不中。
+   */
+  private _isAvatarHit(event: EventTouch, cardIdx: number): boolean {
+    const card = this._content?.children[cardIdx];
+    if (!card?.isValid) return false;
+    const cardUi = card.getComponent(UITransform);
+    if (!cardUi) return false;
+
+    const p = event.getUILocation();
+    const local = cardUi.convertToNodeSpaceAR(new Vec3(p.x, p.y, 0));
+
+    const hitX = Math.abs(local.x) <= AVATAR_SIZE / 2 + 4;
+    const hitY = Math.abs(local.y - AVATAR_Y) <= AVATAR_SIZE / 2 + 4;
+    return hitX && hitY;
   }
 
   private _onOrdersChanged = (): void => {
