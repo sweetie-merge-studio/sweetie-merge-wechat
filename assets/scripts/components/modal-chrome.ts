@@ -545,7 +545,6 @@ export function buildModalShell(root: Node, opts: ModalShellOptions): ModalShell
   closeLabel.verticalAlign = Label.VerticalAlign.CENTER;
   fontManager.applyFont(closeLabel);
   const closeTap = close.addComponent(TapZoneComponent);
-  closeTap.debugName = `modal-close-${opts.title}`;
   closeTap.onTap = () => {
     try {
       playSfx('popup_close');

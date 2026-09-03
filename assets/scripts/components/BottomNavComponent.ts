@@ -190,7 +190,6 @@ export class BottomNavComponent extends Component {
         hitArea.setPosition(new Vec3(0, 50, 0));
         tabNode.addChild(hitArea);
         const zone = hitArea.addComponent(TapZoneComponent);
-        zone.debugName = `nav-${tabKey}`;
         zone.onTap = () => {
           playSfx('click');
           const canvas = this.node.parent;

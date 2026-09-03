@@ -12,7 +12,7 @@ import {
   createModalRoot,
   setButtonBusy,
 } from './modal-chrome';
-import { TapZoneComponent, getModalRoot } from './tap-zone';
+import { TapZoneComponent } from './tap-zone';
 
 const { ccclass } = _decorator;
 
@@ -74,20 +74,6 @@ export class OfflineRewardModal extends Component {
     );
     const plainButton = buildModalButton(panel, new Vec3(0, -MODAL_H / 2 + 62, 0), '开心收下', BTN_PLAIN, () =>
       this._onPlain(),
-    );
-
-    // 诊断：给按钮打上调试标签，控制台可看到点击事件是否到达、命中是否通过
-    this._doubleButton.getComponent(TapZoneComponent)!.debugName = 'offline-double';
-    plainButton.getComponent(TapZoneComponent)!.debugName = 'offline-plain';
-
-    // 诊断：打印模态层状态和按钮世界坐标，排查"看得见点不到"
-    const mr = getModalRoot();
-    console.info(
-      '[OfflineRewardModal] 弹窗已创建',
-      `modalRoot=${mr?.name ?? 'null'} valid=${mr?.isValid}`,
-      `root=${this.node.name}`,
-      `doubleBtn world=(${this._doubleButton.worldPosition.x.toFixed(0)},${this._doubleButton.worldPosition.y.toFixed(0)})`,
-      `plainBtn world=(${plainButton.worldPosition.x.toFixed(0)},${plainButton.worldPosition.y.toFixed(0)})`,
     );
   }
 

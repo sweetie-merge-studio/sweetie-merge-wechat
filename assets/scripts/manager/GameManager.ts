@@ -1,4 +1,4 @@
-import { _decorator, Component, EventTouch, Game, Input, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, input, profiler, view } from 'cc';
+import { _decorator, assetManager, Component, EventTouch, Game, Input, Node, ResolutionPolicy, UITransform, Vec3, Widget, director, game, input, profiler, view } from 'cc';
 
 import type {
   BlindBoxResult,
@@ -207,6 +207,31 @@ export class GameManager extends Component {
       scene: getLaunchScene(),
     });
     void this._loginToServer();
+    // 异步预加载所有分包：首次打开分包弹窗时 loadBundle 约 800ms，
+    // 启动时后台预加载后打开弹窗即可秒开。不阻塞启动，失败静默降级。
+    this._preloadBundles();
+  }
+
+  /**
+   * 异步预加载所有分包。
+   *
+   * 首次打开分包弹窗时 assetManager.loadBundle 约 800ms（从微信 CDN 下载分包代码），
+   * 启动时后台预加载后打开弹窗即可秒开。不阻塞启动，失败静默降级（打开时再加载）。
+   */
+  private _preloadBundles(): void {
+    const bundles = ['daily', 'backpack', 'store', 'collection', 'blindbox', 'bakery', 'game-audio'];
+    let loaded = 0;
+    for (const name of bundles) {
+      assetManager.loadBundle(name, err => {
+        loaded++;
+        if (err) {
+          console.warn(`[GameManager] 预加载分包 ${name} 失败:`, err);
+        }
+        if (loaded === bundles.length) {
+          console.info(`[GameManager] 所有分包预加载完成（${bundles.length} 个）`);
+        }
+      });
+    }
   }
 
   protected start(): void {

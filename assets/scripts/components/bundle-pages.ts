@@ -239,7 +239,6 @@ export function createPageChrome(root: Node, title: string, onBack?: () => void)
   addAlignedWidget(back, { isAlignTop: true, isAlignLeft: true, top: 168, left: 24 });
 
   const backZone = back.addComponent(TapZoneComponent);
-  backZone.debugName = `back-${title}`;
   backZone.onTap = () => {
     if (onBack) onBack();
     else closeBundlePage(root);
