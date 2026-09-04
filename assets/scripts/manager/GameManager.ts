@@ -414,7 +414,36 @@ export class GameManager extends Component {
     checkNewDay(this.daily);
     this._checkOfflineReward(save.lastOnline);
     this.autoMatchOrders();
+    // 旧存档迁移：此前图鉴解锁逻辑漏调，棋盘中已有的物品从未进 unlockedIds。
+    // 读档时遍历棋盘 + 背包，把已拥有的非母棋物品补进图鉴（同时进未领取列表，可补领钻石）。
+    this._backfillCollectionFromInventory();
     this.events.emit('save:loaded', save);
+  }
+
+  /**
+   * 从棋盘和背包中补全图鉴解锁状态（旧存档迁移用）。
+   * 遍历所有已拥有的非母棋物品，调用 unlockItem 加入 unlockedIds + unclaimedIds。
+   * 已解锁的物品 unlockItem 会静默跳过，不会重复发放。
+   */
+  private _backfillCollectionFromInventory(): void {
+    const seen = new Set<string>();
+    // 棋盘物品
+    for (const cell of this.board) {
+      const id = cell.itemId;
+      if (!id || isMother(id) || seen.has(id)) continue;
+      seen.add(id);
+      unlockItem(this.collection, id);
+    }
+    // 背包物品
+    for (const entry of this.backpack.items) {
+      if (!entry.itemId || seen.has(entry.itemId)) continue;
+      seen.add(entry.itemId);
+      unlockItem(this.collection, entry.itemId);
+    }
+    if (seen.size > 0) {
+      this.events.emit('collection:changed', this.collection);
+      this.scheduleSave();
+    }
   }
 
   /** 防抖保存：高频调用合并成一次写入。 */
@@ -465,6 +494,12 @@ export class GameManager extends Component {
     this.events.emit('board:changed', this.board);
     this.events.emit('energy:changed', this.energy);
     this.events.emit('fx:spawn', spawnIdx);
+    // 母棋产出 Lv.1 物品时解锁图鉴（此前漏调）
+    const spawnId = this.board[spawnIdx]?.itemId;
+    if (spawnId) {
+      unlockItem(this.collection, spawnId);
+      this.events.emit('collection:changed', this.collection);
+    }
     this.autoMatchOrders();
     this.scheduleSave();
     return true;
