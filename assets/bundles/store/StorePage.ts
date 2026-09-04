@@ -630,34 +630,19 @@ export class StorePageComponent extends Component {
 
     this._drawCardBg(card, DIAMOND_CARD_W, cardH);
 
-    // VIP 角标（左上角，橙色横向圆角矩形，对齐抖音小游戏样式）
+    // VIP 丝带角标（左上角，使用 vip_tag 图片，对齐抖音小游戏）
     if (pkg.badge === 'vip') {
       const badge = new Node('badge');
       badge.layer = card.layer;
-      badge.addComponent(UITransform).setContentSize(56, 32);
-      badge.setPosition(new Vec3(-DIAMOND_CARD_W / 2 + 34, cardH / 2 - 16, 0));
+      // 原图比例 128:204 ≈ 0.627，保持比例显示
+      badge.addComponent(UITransform).setContentSize(44, 70);
+      badge.setPosition(new Vec3(-DIAMOND_CARD_W / 2 + 12, cardH / 2 - 14, 0));
       card.addChild(badge);
-      const bg = badge.addComponent(Graphics);
-      // 阴影
-      bg.fillColor = new Color(170, 105, 25, 60);
-      bg.roundRect(-28 + 1, -16 - 2, 56, 32, 10);
-      bg.fill();
-      // 橙色背景
-      bg.fillColor = new Color(245, 166, 35, 255);
-      bg.roundRect(-28, -16, 56, 32, 10);
-      bg.fill();
-      // 顶部高光
-      bg.fillColor = new Color(255, 240, 200, 100);
-      bg.roundRect(-24, 6, 48, 5, 3);
-      bg.fill();
-      // 边框
-      bg.lineWidth = 1.5;
-      bg.strokeColor = new Color(210, 120, 30, 255);
-      bg.roundRect(-28, -16, 56, 32, 10);
-      bg.stroke();
-      const vipLabel = this._makeLabel(badge, 'VIP', 14, Color.WHITE, true);
-      vipLabel.node.setPosition(new Vec3(0, 0, 0));
-      vipLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
+      const sprite = badge.addComponent(Sprite);
+      sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      loadSpriteFrame('sprites/ui/vip_tag', sf => {
+        if (sf && sprite.isValid) sprite.spriteFrame = sf;
+      });
     }
 
     // Best Value 圆形角标（右上角）
