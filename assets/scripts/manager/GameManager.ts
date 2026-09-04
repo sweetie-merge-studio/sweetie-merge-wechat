@@ -482,6 +482,11 @@ export class GameManager extends Component {
       this._advanceDaily('merge_10');
       this.completeTutorialStep('dragMerge');
       this._updateCombo();
+      // 合成产出新物品时解锁图鉴（此前漏调，导致图鉴始终全锁）
+      if (resultId) {
+        unlockItem(this.collection, resultId);
+        this.events.emit('collection:changed', this.collection);
+      }
     } else {
       // 合成失败（交换）时连击中断
       this._resetCombo();
@@ -1118,8 +1123,10 @@ export class GameManager extends Component {
     // 优先进背包
     if (addToBackpack(this.backpack, itemId)) {
       spendCoins(this.economy, price);
+      unlockItem(this.collection, itemId);
       this.events.emit('economy:changed', this.economy);
       this.events.emit('backpack:changed', this.backpack);
+      this.events.emit('collection:changed', this.collection);
       this.scheduleSave();
       return true;
     }
@@ -1129,8 +1136,10 @@ export class GameManager extends Component {
     if (boardIdx >= 0) {
       spendCoins(this.economy, price);
       this.board[boardIdx] = { itemId };
+      unlockItem(this.collection, itemId);
       this.events.emit('economy:changed', this.economy);
       this.events.emit('board:changed', this.board);
+      this.events.emit('collection:changed', this.collection);
       this.events.emit('fx:spawn', boardIdx);
       this.autoMatchOrders();
       this.scheduleSave();
